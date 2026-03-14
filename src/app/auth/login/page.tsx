@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { login } from "@/lib/actions/auth";
-import { BookOpen, Loader2 } from "lucide-react";
+import Image from "next/image";
+import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const [error, setError] = useState("");
@@ -22,9 +23,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-auth px-4">
       <div className="w-full max-w-md p-6 sm:p-8 glass-strong rounded-2xl shadow-lg">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <BookOpen className="w-8 h-8 text-orange-500" />
-          <h1 className="text-2xl font-bold text-neutral-900">BooksPlaza</h1>
+        <div className="flex items-center justify-center mb-8">
+          <Image src="/booksplaza-logo.png" alt="BooksPlaza" width={0} height={0} sizes="100vw" className="h-14 w-auto" />
         </div>
 
         <h2 className="text-lg font-semibold text-center mb-6">Sign in to your account</h2>
