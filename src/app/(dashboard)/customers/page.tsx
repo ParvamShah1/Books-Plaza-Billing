@@ -60,7 +60,7 @@ export default function CustomersPage() {
 
       {/* Search */}
       <div className="mb-6">
-        <div className="relative max-w-md">
+        <div className="relative w-full sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
           <input
             type="text"
@@ -106,23 +106,23 @@ export default function CustomersPage() {
           </button>
         </EmptyState>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <table className="w-full min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                   Name
                 </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider hidden sm:table-cell">
                   Phone
                 </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider hidden md:table-cell">
                   Email
                 </th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                  Pending Payment
+                <th className="text-right px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  Pending
                 </th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                <th className="text-right px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -130,7 +130,7 @@ export default function CustomersPage() {
             <tbody className="divide-y divide-gray-100">
               {customers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
+                  <td className="px-4 sm:px-6 py-3 sm:py-4">
                     <Link
                       href={`/customers/${customer.id}`}
                       className="text-sm font-medium text-neutral-900 hover:text-orange-500 transition-colors"
@@ -138,18 +138,21 @@ export default function CustomersPage() {
                       {customer.full_name}
                     </Link>
                     {customer.address && (
-                      <div className="text-xs text-neutral-400 mt-0.5 truncate max-w-xs">
+                      <div className="text-xs text-neutral-400 mt-0.5 truncate max-w-[200px] sm:max-w-xs">
                         {customer.address}
                       </div>
                     )}
+                    <div className="sm:hidden text-xs text-neutral-500 mt-0.5">
+                      {customer.phone || ""}
+                    </div>
                   </td>
-                  <td className="px-6 py-4 text-sm text-neutral-700">
+                  <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-neutral-700 hidden sm:table-cell">
                     {customer.phone || "—"}
                   </td>
-                  <td className="px-6 py-4 text-sm text-neutral-700">
+                  <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-neutral-700 hidden md:table-cell">
                     {customer.email || "—"}
                   </td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-4 sm:px-6 py-3 sm:py-4 text-right">
                     <Link
                       href={`/customers/${customer.id}`}
                       className={`text-sm font-semibold ${
@@ -163,7 +166,7 @@ export default function CustomersPage() {
                         : "Settled"}
                     </Link>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 sm:px-6 py-3 sm:py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => setEditCustomer(customer)}

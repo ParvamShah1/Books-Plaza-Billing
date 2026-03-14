@@ -74,7 +74,7 @@ export default function InvoicesPage() {
             placeholder="Search by invoice number..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm w-64"
+            className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm w-full sm:w-64"
           />
         </div>
 
@@ -137,23 +137,23 @@ export default function InvoicesPage() {
         </EmptyState>
       ) : (
         <>
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+            <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Invoice #
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Customer
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider hidden sm:table-cell">
                     Type
                   </th>
-                  <th className="text-right px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-right px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Amount
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider hidden sm:table-cell">
                     Date
                   </th>
                 </tr>
@@ -165,21 +165,21 @@ export default function InvoicesPage() {
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => window.location.href = `/invoices/${invoice.id}`}
                   >
-                    <td className="px-6 py-4 text-sm font-medium text-orange-500">
+                    <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm font-medium text-orange-500">
                       {invoice.invoice_number}
                     </td>
-                    <td className="px-6 py-4 text-sm text-neutral-700">
+                    <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-neutral-700">
                       {invoice.customer?.full_name || "—"}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-3 sm:py-4 hidden sm:table-cell">
                       <Badge variant={invoice.type === "TAX_INVOICE" ? "info" : "default"}>
                         {invoice.type === "TAX_INVOICE" ? "Tax Invoice" : "Delivery Challan"}
                       </Badge>
                     </td>
-                    <td className="px-6 py-4 text-sm font-medium text-neutral-900 text-right">
+                    <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm font-medium text-neutral-900 text-right">
                       {formatCurrency(invoice.grand_total)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-neutral-500">
+                    <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-neutral-500 hidden sm:table-cell">
                       {format(new Date(invoice.created_at), "dd MMM yyyy")}
                     </td>
                   </tr>
@@ -190,7 +190,7 @@ export default function InvoicesPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4">
               <p className="text-sm text-neutral-500">
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
               </p>

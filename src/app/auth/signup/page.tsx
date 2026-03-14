@@ -20,8 +20,8 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 bg-white rounded-lg border border-gray-200">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-md p-6 sm:p-8 bg-white rounded-lg border border-gray-200">
         <div className="flex items-center justify-center gap-2 mb-8">
           <BookOpen className="w-8 h-8 text-orange-500" />
           <h1 className="text-2xl font-bold text-neutral-900">BooksPlaza</h1>

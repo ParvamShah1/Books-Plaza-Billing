@@ -16,11 +16,11 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
         {/* Logo + Nav */}
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-4 sm:gap-8">
           <Link href="/invoices" className="flex items-center">
-            <Image src="/booksplaza-logo.png" alt="BooksPlaza" width={0} height={0} sizes="100vw" className="h-10 w-auto" />
+            <Image src="/booksplaza-logo.png" alt="BooksPlaza" width={0} height={0} sizes="100vw" className="h-8 sm:h-10 w-auto" />
           </Link>
 
           <nav className="flex items-center gap-1">
@@ -32,7 +32,7 @@ export function Navbar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  className={`px-2 sm:px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                     isActive
                       ? "bg-orange-50 text-orange-600"
                       : "text-neutral-500 hover:text-neutral-900 hover:bg-gray-50"
@@ -49,10 +49,10 @@ export function Navbar() {
         <form action={signOut}>
           <button
             type="submit"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-neutral-500 hover:text-neutral-900 hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-sm font-medium text-neutral-500 hover:text-neutral-900 hover:bg-gray-50 transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            Sign Out
+            <span className="hidden sm:inline">Sign Out</span>
           </button>
         </form>
       </div>

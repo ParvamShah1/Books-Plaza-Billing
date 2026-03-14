@@ -3,6 +3,7 @@ import { getInvoice } from "@/lib/actions/invoices";
 import { formatCurrency, numberToWords } from "@/lib/calculations";
 import { PageHeader } from "@/components/ui/page-header";
 import { InvoiceActions } from "@/components/invoice-actions";
+import { InvoicePreviewWrapper } from "@/components/invoice-preview-wrapper";
 import { format } from "date-fns";
 import Link from "next/link";
 
@@ -42,10 +43,11 @@ export default async function InvoiceDetailPage({
         </PageHeader>
       </div>
 
-      {/* A4 Invoice Preview */}
+      {/* A4 Invoice Preview — scales down on mobile */}
+      <InvoicePreviewWrapper>
       <div
         id="invoice-content"
-        className="bg-white border border-gray-200 shadow-sm mx-auto flex flex-col"
+        className="bg-white border border-gray-200 shadow-sm mx-auto flex flex-col origin-top-left"
         style={{ width: "210mm", minHeight: "297mm", padding: "6mm 8mm", fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", color: "#000" }}
       >
         {/* === HEADER === */}
@@ -232,6 +234,7 @@ export default async function InvoiceDetailPage({
 
         </div>
       </div>
+      </InvoicePreviewWrapper>
     </div>
   );
 }

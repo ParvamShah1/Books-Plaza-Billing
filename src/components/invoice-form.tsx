@@ -238,9 +238,9 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
 
       {/* Items */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h3 className="text-sm font-semibold text-neutral-900">Line Items</h3>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => {
@@ -276,7 +276,8 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200">
@@ -361,6 +362,79 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="md:hidden space-y-4">
+          {items.map((item, index) => (
+            <div key={index} className="border border-gray-200 rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-neutral-500">Item {index + 1}</span>
+                {items.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeItem(index)}
+                    className="p-1 rounded hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                value={item.title}
+                onChange={(e) => updateItem(index, "title", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-sm"
+                placeholder="Book title *"
+              />
+              <input
+                type="text"
+                value={item.publisher}
+                onChange={(e) => updateItem(index, "publisher", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-sm"
+                placeholder="Publisher"
+              />
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-1">Qty</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.quantity || ""}
+                    onChange={(e) => updateItem(index, "quantity", e.target.value === "" ? 0 : parseInt(e.target.value))}
+                    onBlur={() => { if (!item.quantity) updateItem(index, "quantity", 1); }}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-1">Rate</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={item.price}
+                    onChange={(e) => updateItem(index, "price", parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-1">Disc%</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={item.discount}
+                    onChange={(e) => updateItem(index, "discount", parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-sm"
+                  />
+                </div>
+              </div>
+              <div className="text-right text-sm font-medium text-neutral-700">
+                Amount: {formatCurrency(totals.items[index]?.amount || 0)}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

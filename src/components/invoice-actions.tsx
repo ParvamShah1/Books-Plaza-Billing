@@ -47,7 +47,7 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 no-print">
+    <div className="flex flex-wrap items-center gap-2 no-print">
       <Link
         href={`/invoices/${invoice.id}/edit`}
         className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-neutral-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5"

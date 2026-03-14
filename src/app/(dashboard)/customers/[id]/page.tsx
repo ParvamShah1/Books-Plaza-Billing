@@ -78,20 +78,20 @@ export default async function CustomerDetailPage({
             No invoices yet
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+            <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Invoice #
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Entity
                   </th>
-                  <th className="text-right px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-right px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Amount
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Date
                   </th>
                 </tr>
@@ -99,7 +99,7 @@ export default async function CustomerDetailPage({
               <tbody className="divide-y divide-gray-100">
                 {invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3">
+                    <td className="px-4 sm:px-6 py-3">
                       <Link
                         href={`/invoices/${inv.id}`}
                         className="text-sm font-medium text-orange-500 hover:text-orange-600"
@@ -107,13 +107,13 @@ export default async function CustomerDetailPage({
                         {inv.invoice_number}
                       </Link>
                     </td>
-                    <td className="px-6 py-3 text-sm text-neutral-700">
+                    <td className="px-4 sm:px-6 py-3 text-sm text-neutral-700">
                       {inv.entity?.name || "—"}
                     </td>
-                    <td className="px-6 py-3 text-sm font-medium text-neutral-900 text-right">
+                    <td className="px-4 sm:px-6 py-3 text-sm font-medium text-neutral-900 text-right">
                       {formatCurrency(inv.grand_total)}
                     </td>
-                    <td className="px-6 py-3 text-sm text-neutral-500">
+                    <td className="px-4 sm:px-6 py-3 text-sm text-neutral-500">
                       {format(new Date(inv.created_at), "dd MMM yyyy")}
                     </td>
                   </tr>
@@ -134,20 +134,20 @@ export default async function CustomerDetailPage({
             No payments recorded
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+            <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Date
                   </th>
-                  <th className="text-right px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-right px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Amount
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Mode
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider">
                     Notes
                   </th>
                 </tr>
@@ -155,18 +155,18 @@ export default async function CustomerDetailPage({
               <tbody className="divide-y divide-gray-100">
                 {payments.map((payment) => (
                   <tr key={payment.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 text-sm text-neutral-700">
+                    <td className="px-4 sm:px-6 py-3 text-sm text-neutral-700">
                       {format(new Date(payment.created_at), "dd MMM yyyy, hh:mm a")}
                     </td>
-                    <td className="px-6 py-3 text-sm font-medium text-green-600 text-right">
+                    <td className="px-4 sm:px-6 py-3 text-sm font-medium text-green-600 text-right">
                       +{formatCurrency(payment.amount)}
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-4 sm:px-6 py-3">
                       <span className="inline-block px-2 py-0.5 bg-gray-100 text-neutral-600 text-xs font-medium rounded">
                         {payment.mode}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-sm text-neutral-500">
+                    <td className="px-4 sm:px-6 py-3 text-sm text-neutral-500">
                       {payment.notes || "—"}
                     </td>
                   </tr>
