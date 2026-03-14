@@ -1,13 +1,46 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f0f2f5;
   --foreground: #171717;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+  min-height: 100vh;
+}
+
+/* Glass UI utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+}
+
+/* Gradient backgrounds */
+.bg-gradient-main {
+  background: linear-gradient(135deg, #fff5eb 0%, #f0f2f5 50%, #fff1e6 100%);
+}
+
+.bg-gradient-auth {
+  background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 40%, #ffedd5 100%);
 }
 
 /* Print styles — only show the invoice exactly as preview */
@@ -26,8 +59,13 @@ body {
     padding: 0 !important;
     max-width: none !important;
   }
-  .bg-gray-50 {
+  .bg-gray-50, .bg-gradient-main {
     background: white !important;
+  }
+  .glass, .glass-strong, .glass-card {
+    background: white !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
   #invoice-content {
     border: none !important;

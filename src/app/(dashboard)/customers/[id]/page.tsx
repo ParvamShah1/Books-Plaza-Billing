@@ -39,7 +39,7 @@ export default async function CustomerDetailPage({
 
       {/* Balance Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="glass-card rounded-xl p-5">
           <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">
             Total Invoiced
           </p>
@@ -47,7 +47,7 @@ export default async function CustomerDetailPage({
             {formatCurrency(balance.totalInvoiced)}
           </p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="glass-card rounded-xl p-5">
           <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">
             Total Paid
           </p>
@@ -55,7 +55,7 @@ export default async function CustomerDetailPage({
             {formatCurrency(balance.totalPaid)}
           </p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="glass-card rounded-xl p-5">
           <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">
             Pending Amount
           </p>
@@ -74,11 +74,11 @@ export default async function CustomerDetailPage({
           Invoices ({invoices.length})
         </h3>
         {invoices.length === 0 ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 text-center text-sm text-neutral-500">
+          <div className="glass-card rounded-xl p-6 text-center text-sm text-neutral-500">
             No invoices yet
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <div className="glass-card rounded-xl overflow-x-auto">
             <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="border-b border-gray-100">
@@ -130,11 +130,11 @@ export default async function CustomerDetailPage({
           Payment History ({payments.length})
         </h3>
         {payments.length === 0 ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 text-center text-sm text-neutral-500">
+          <div className="glass-card rounded-xl p-6 text-center text-sm text-neutral-500">
             No payments recorded
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <div className="glass-card rounded-xl overflow-x-auto">
             <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="border-b border-gray-100">

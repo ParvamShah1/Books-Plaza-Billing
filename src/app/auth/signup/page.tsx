@@ -20,8 +20,8 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md p-6 sm:p-8 bg-white rounded-lg border border-gray-200">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-auth px-4">
+      <div className="w-full max-w-md p-6 sm:p-8 glass-strong rounded-2xl shadow-lg">
         <div className="flex items-center justify-center gap-2 mb-8">
           <BookOpen className="w-8 h-8 text-orange-500" />
           <h1 className="text-2xl font-bold text-neutral-900">BooksPlaza</h1>
@@ -45,7 +45,7 @@ export default function SignupPage() {
               name="fullName"
               type="text"
               required
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+              className="w-full px-3 py-2 bg-white/50 border border-white/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
               placeholder="Your full name"
             />
           </div>
@@ -59,7 +59,7 @@ export default function SignupPage() {
               name="email"
               type="email"
               required
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+              className="w-full px-3 py-2 bg-white/50 border border-white/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
               placeholder="you@example.com"
             />
           </div>
@@ -74,7 +74,7 @@ export default function SignupPage() {
               type="password"
               required
               minLength={6}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+              className="w-full px-3 py-2 bg-white/50 border border-white/40 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
               placeholder="••••••••"
             />
           </div>

@@ -59,7 +59,7 @@ export function CustomerPaymentSection({ customerId, currentBalance }: CustomerP
   }
 
   return (
-    <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
+    <div className="mb-8 glass-card rounded-xl p-6">
       <h3 className="text-sm font-semibold text-neutral-900 mb-4">Record Payment</h3>
 
       {error && (

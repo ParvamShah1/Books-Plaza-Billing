@@ -136,7 +136,7 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
       )}
 
       {/* Invoice Details */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="glass-card rounded-xl p-6">
         <h3 className="text-sm font-semibold text-neutral-900 mb-4">Invoice Details</h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -237,7 +237,7 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
       </div>
 
       {/* Items */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="glass-card rounded-xl p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h3 className="text-sm font-semibold text-neutral-900">Line Items</h3>
           <div className="flex flex-wrap items-center gap-2">
@@ -439,7 +439,7 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
       </div>
 
       {/* Totals */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="glass-card rounded-xl p-6">
         <h3 className="text-sm font-semibold text-neutral-900 mb-4">Summary</h3>
 
         <div className="space-y-2 max-w-sm ml-auto">
