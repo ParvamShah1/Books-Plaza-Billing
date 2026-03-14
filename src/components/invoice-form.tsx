@@ -3,16 +3,17 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
-import { createInvoice } from "@/lib/actions/invoices";
+import { createInvoice, updateInvoice } from "@/lib/actions/invoices";
 import { calculateInvoiceTotals, formatCurrency } from "@/lib/calculations";
 import { bulkProductItemSchema } from "@/lib/validations";
-import type { Customer, Entity, InvoiceType } from "@/lib/types";
+import type { Customer, Entity, Invoice, InvoiceType } from "@/lib/types";
 import type { InvoiceItemInput } from "@/lib/validations";
 import { Plus, Trash2, Loader2, Upload, Download } from "lucide-react";
 
 interface InvoiceFormProps {
   customers: Customer[];
   entities: Entity[];
+  invoice?: Invoice;
 }
 
 const emptyItem: InvoiceItemInput = {
@@ -23,15 +24,24 @@ const emptyItem: InvoiceItemInput = {
   discount: 0,
 };
 
-export function InvoiceForm({ customers, entities }: InvoiceFormProps) {
+export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) {
   const router = useRouter();
-  const [entityId, setEntityId] = useState(entities[0]?.id || "");
-  const [type, setType] = useState<InvoiceType>("TAX_INVOICE");
-  const [customerId, setCustomerId] = useState("");
-  const [freightCharges, setFreightCharges] = useState(0);
-  const [showTotal, setShowTotal] = useState(true);
-  const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<InvoiceItemInput[]>([{ ...emptyItem }]);
+  const isEditing = !!invoice;
+  const [entityId, setEntityId] = useState(invoice?.entity_id || entities[0]?.id || "");
+  const [type, setType] = useState<InvoiceType>(invoice?.type || "TAX_INVOICE");
+  const [customerId, setCustomerId] = useState(invoice?.customer_id || "");
+  const [freightCharges, setFreightCharges] = useState(invoice?.freight_charges || 0);
+  const [showTotal, setShowTotal] = useState(invoice?.show_total ?? true);
+  const [notes, setNotes] = useState(invoice?.notes || "");
+  const [items, setItems] = useState<InvoiceItemInput[]>(
+    invoice?.items?.map((item) => ({
+      title: item.title,
+      publisher: item.publisher || "",
+      quantity: item.quantity,
+      price: item.price,
+      discount: item.discount,
+    })) || [{ ...emptyItem }]
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -95,7 +105,7 @@ export function InvoiceForm({ customers, entities }: InvoiceFormProps) {
     setLoading(true);
     setError("");
 
-    const result = await createInvoice({
+    const payload = {
       entity_id: entityId,
       type,
       customer_id: customerId,
@@ -103,7 +113,11 @@ export function InvoiceForm({ customers, entities }: InvoiceFormProps) {
       show_total: type === "DELIVERY_CHALLAN" ? showTotal : true,
       notes,
       items,
-    });
+    };
+
+    const result = isEditing
+      ? await updateInvoice(invoice.id, payload)
+      : await createInvoice(payload);
 
     if (result?.error) {
       setError(result.error);
@@ -269,9 +283,9 @@ export function InvoiceForm({ customers, entities }: InvoiceFormProps) {
                 <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-8">#</th>
                 <th className="text-left pb-2 text-xs font-medium text-neutral-500">Title *</th>
                 <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-28">Publisher</th>
-                <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-16">Qty</th>
-                <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-20">Rate</th>
-                <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-16">Disc%</th>
+                <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-24">Qty</th>
+                <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-24">Rate</th>
+                <th className="text-left pb-2 text-xs font-medium text-neutral-500 w-20">Disc%</th>
                 <th className="text-right pb-2 text-xs font-medium text-neutral-500 w-24">Amount</th>
                 <th className="w-8"></th>
               </tr>
@@ -302,8 +316,9 @@ export function InvoiceForm({ customers, entities }: InvoiceFormProps) {
                     <input
                       type="number"
                       min="1"
-                      value={item.quantity}
-                      onChange={(e) => updateItem(index, "quantity", parseInt(e.target.value) || 1)}
+                      value={item.quantity || ""}
+                      onChange={(e) => updateItem(index, "quantity", e.target.value === "" ? 0 : parseInt(e.target.value))}
+                      onBlur={() => { if (!item.quantity) updateItem(index, "quantity", 1); }}
                       className="w-full px-2 py-1.5 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-transparent text-sm"
                     />
                   </td>
@@ -392,7 +407,7 @@ export function InvoiceForm({ customers, entities }: InvoiceFormProps) {
           className="px-6 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-          Create Invoice
+          {isEditing ? "Update Invoice" : "Create Invoice"}
         </button>
       </div>
     </div>

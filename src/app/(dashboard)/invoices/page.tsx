@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { getInvoices } from "@/lib/actions/invoices";
+import { getEntities } from "@/lib/actions/entities";
 import { formatCurrency } from "@/lib/calculations";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import type { Invoice } from "@/lib/types";
+import type { Entity, Invoice } from "@/lib/types";
 import { FileText, Plus, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 
@@ -20,13 +21,20 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [entityFilter, setEntityFilter] = useState("");
+  const [entities, setEntities] = useState<Entity[]>([]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  useEffect(() => {
+    getEntities().then(setEntities);
+  }, []);
 
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     const data = await getInvoices({
       type: typeFilter || undefined,
+      entity_id: entityFilter || undefined,
       search: search || undefined,
       page,
       pageSize: PAGE_SIZE,
@@ -34,7 +42,7 @@ export default function InvoicesPage() {
     setInvoices(data.invoices);
     setTotal(data.total);
     setLoading(false);
-  }, [search, typeFilter, page]);
+  }, [search, typeFilter, entityFilter, page]);
 
   useEffect(() => {
     loadInvoices();
@@ -43,7 +51,7 @@ export default function InvoicesPage() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [search, typeFilter]);
+  }, [search, typeFilter, entityFilter]);
 
   return (
     <div>
@@ -78,6 +86,19 @@ export default function InvoicesPage() {
           <option value="">All Types</option>
           <option value="TAX_INVOICE">Tax Invoice</option>
           <option value="DELIVERY_CHALLAN">Delivery Challan</option>
+        </select>
+
+        <select
+          value={entityFilter}
+          onChange={(e) => setEntityFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+        >
+          <option value="">All Entities</option>
+          {entities.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -139,14 +160,13 @@ export default function InvoicesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {invoices.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <Link
-                        href={`/invoices/${invoice.id}`}
-                        className="text-sm font-medium text-orange-500 hover:text-orange-600"
-                      >
-                        {invoice.invoice_number}
-                      </Link>
+                  <tr
+                    key={invoice.id}
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => window.location.href = `/invoices/${invoice.id}`}
+                  >
+                    <td className="px-6 py-4 text-sm font-medium text-orange-500">
+                      {invoice.invoice_number}
                     </td>
                     <td className="px-6 py-4 text-sm text-neutral-700">
                       {invoice.customer?.full_name || "—"}

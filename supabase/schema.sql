@@ -125,14 +125,21 @@ create index idx_payments_created_at on public.payments (created_at);
 -- ============================================
 -- AUTO-INCREMENT INVOICE NUMBER
 -- ============================================
-create or replace function public.generate_invoice_number(p_user_id uuid)
+create or replace function public.generate_invoice_number(p_user_id uuid, p_type text default 'TAX_INVOICE')
 returns text
 language plpgsql
 security definer
 as $$
 declare
   next_num integer;
+  prefix text;
 begin
+  if p_type = 'DELIVERY_CHALLAN' then
+    prefix := 'DC';
+  else
+    prefix := 'INV';
+  end if;
+
   select coalesce(
     max(
       cast(
@@ -143,9 +150,10 @@ begin
   ) + 1
   into next_num
   from public.invoices
-  where user_id = p_user_id;
+  where user_id = p_user_id
+    and invoice_number like prefix || '-%';
 
-  return 'INV-' || lpad(next_num::text, 4, '0');
+  return prefix || '-' || lpad(next_num::text, 4, '0');
 end;
 $$;
 

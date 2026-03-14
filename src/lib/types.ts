@@ -14,6 +14,7 @@ export type Entity = {
   account_number: string;
   branch_ifsc: string;
   branch_name: string;
+  bank_name: string;
   created_at: string;
 };
 

@@ -9,6 +9,9 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "BooksPlaza - Billing System",
   description: "Billing system for bookstores",
+  icons: {
+    icon: "/booksplaza-logo.png",
+  },
 };
 
 export default function RootLayout({

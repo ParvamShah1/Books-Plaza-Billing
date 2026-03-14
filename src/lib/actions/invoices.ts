@@ -15,6 +15,7 @@ async function getUserId() {
 
 export async function getInvoices(filters?: {
   type?: string;
+  entity_id?: string;
   search?: string;
   page?: number;
   pageSize?: number;
@@ -33,6 +34,9 @@ export async function getInvoices(filters?: {
 
   if (filters?.type) {
     query = query.eq("type", filters.type);
+  }
+  if (filters?.entity_id) {
+    query = query.eq("entity_id", filters.entity_id);
   }
   if (filters?.search) {
     query = query.or(
@@ -74,7 +78,7 @@ export async function createInvoice(input: unknown) {
   // Generate invoice number
   const { data: numData, error: numError } = await supabase.rpc(
     "generate_invoice_number",
-    { p_user_id: userId }
+    { p_user_id: userId, p_type: parsed.data.type }
   );
 
   if (numError) return { error: numError.message };
@@ -130,7 +134,7 @@ export async function createInvoice(input: unknown) {
 }
 
 export async function convertToTaxInvoice(id: string) {
-  const { supabase } = await getUserId();
+  const { supabase, userId } = await getUserId();
 
   const { data: invoice, error: fetchError } = await supabase
     .from("invoices")
@@ -143,9 +147,17 @@ export async function convertToTaxInvoice(id: string) {
     return { error: "Only delivery challans can be converted" };
   }
 
+  // Generate new INV- number
+  const { data: numData, error: numError } = await supabase.rpc(
+    "generate_invoice_number",
+    { p_user_id: userId, p_type: "TAX_INVOICE" }
+  );
+
+  if (numError) return { error: numError.message };
+
   const { error: updateError } = await supabase
     .from("invoices")
-    .update({ type: "TAX_INVOICE" })
+    .update({ type: "TAX_INVOICE", show_total: true, invoice_number: numData as string })
     .eq("id", id);
 
   if (updateError) return { error: updateError.message };
@@ -153,6 +165,77 @@ export async function convertToTaxInvoice(id: string) {
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${id}`);
   return { success: true };
+}
+
+export async function updateInvoice(id: string, input: unknown) {
+  const parsed = invoiceSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0].message };
+  }
+
+  const { supabase, userId } = await getUserId();
+
+  // Verify ownership
+  const { data: existing, error: fetchError } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .single();
+
+  if (fetchError || !existing) return { error: "Invoice not found" };
+
+  // Calculate totals
+  const totals = calculateInvoiceTotals(parsed.data.items);
+  const freight = parsed.data.freight_charges || 0;
+  const grandTotal = totals.subtotal + freight;
+
+  const { error: updateError } = await supabase
+    .from("invoices")
+    .update({
+      entity_id: parsed.data.entity_id,
+      type: parsed.data.type,
+      customer_id: parsed.data.customer_id,
+      subtotal: totals.subtotal,
+      freight_charges: freight,
+      grand_total: grandTotal,
+      show_total: parsed.data.show_total,
+      notes: parsed.data.notes || null,
+    })
+    .eq("id", id);
+
+  if (updateError) return { error: updateError.message };
+
+  // Delete old items and insert new ones
+  const { error: deleteError } = await supabase
+    .from("invoice_items")
+    .delete()
+    .eq("invoice_id", id);
+
+  if (deleteError) return { error: deleteError.message };
+
+  const items = parsed.data.items.map((item) => {
+    const amount = Math.round(item.quantity * item.price * (1 - item.discount / 100) * 100) / 100;
+    return {
+      invoice_id: id,
+      title: item.title,
+      publisher: item.publisher || null,
+      quantity: item.quantity,
+      price: item.price,
+      discount: item.discount,
+      amount,
+    };
+  });
+
+  const { error: itemsError } = await supabase
+    .from("invoice_items")
+    .insert(items);
+
+  if (itemsError) return { error: itemsError.message };
+
+  revalidatePath("/invoices");
+  revalidatePath(`/invoices/${id}`);
+  return { success: true, id };
 }
 
 export async function getCustomerInvoices(customerId: string): Promise<Invoice[]> {

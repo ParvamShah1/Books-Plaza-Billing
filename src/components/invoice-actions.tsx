@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { convertToTaxInvoice } from "@/lib/actions/invoices";
 import type { Invoice } from "@/lib/types";
-import { Printer, FileDown, ArrowRightLeft, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Printer, FileDown, ArrowRightLeft, Loader2, Pencil } from "lucide-react";
 
 interface InvoiceActionsProps {
   invoice: Invoice;
@@ -47,6 +48,14 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
 
   return (
     <div className="flex items-center gap-2 no-print">
+      <Link
+        href={`/invoices/${invoice.id}/edit`}
+        className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-neutral-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+      >
+        <Pencil className="w-4 h-4" />
+        Edit
+      </Link>
+
       {invoice.type === "DELIVERY_CHALLAN" && (
         <button
           onClick={handleConvert}

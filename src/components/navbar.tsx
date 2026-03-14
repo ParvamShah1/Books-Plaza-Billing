@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/lib/actions/auth";
-import { BookOpen, LogOut } from "lucide-react";
+import Image from "next/image";
+import { LogOut } from "lucide-react";
 
 const navItems = [
   { href: "/invoices", label: "Invoices" },
@@ -18,11 +19,8 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
         {/* Logo + Nav */}
         <div className="flex items-center gap-8">
-          <Link href="/invoices" className="flex items-center gap-2">
-            <BookOpen className="w-6 h-6 text-orange-500" />
-            <span className="text-base font-bold tracking-tight text-neutral-900">
-              BooksPlaza
-            </span>
+          <Link href="/invoices" className="flex items-center">
+            <Image src="/booksplaza-logo.png" alt="BooksPlaza" width={0} height={0} sizes="100vw" className="h-10 w-auto" />
           </Link>
 
           <nav className="flex items-center gap-1">
