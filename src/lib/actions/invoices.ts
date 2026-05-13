@@ -64,7 +64,11 @@ export async function getInvoice(id: string): Promise<Invoice | null> {
     console.error("getInvoice error:", error.message);
     return null;
   }
-  return data as Invoice;
+  const inv = data as Invoice;
+  if (inv.items) {
+    inv.items.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  }
+  return inv;
 }
 
 export async function createInvoice(input: unknown) {
@@ -90,9 +94,7 @@ export async function createInvoice(input: unknown) {
   const freight = parsed.data.freight_charges || 0;
   const grandTotal = totals.subtotal + freight;
 
-  const { data: invoice, error: invoiceError } = await supabase
-    .from("invoices")
-    .insert({
+  const insertData: Record<string, unknown> = {
       user_id: userId,
       entity_id: parsed.data.entity_id,
       invoice_number: invoiceNumber,
@@ -103,14 +105,22 @@ export async function createInvoice(input: unknown) {
       grand_total: grandTotal,
       show_total: parsed.data.show_total,
       notes: parsed.data.notes || null,
-    })
+    };
+
+  if (parsed.data.invoice_date) {
+    insertData.created_at = new Date(parsed.data.invoice_date).toISOString();
+  }
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from("invoices")
+    .insert(insertData)
     .select()
     .single();
 
   if (invoiceError) return { error: invoiceError.message };
 
   // Insert items
-  const items = parsed.data.items.map((item) => {
+  const items = parsed.data.items.map((item, index) => {
     const amount = Math.round(item.quantity * item.price * (1 - item.discount / 100) * 100) / 100;
     return {
       invoice_id: invoice.id,
@@ -120,6 +130,7 @@ export async function createInvoice(input: unknown) {
       price: item.price,
       discount: item.discount,
       amount,
+      sort_order: index,
     };
   });
 
@@ -167,6 +178,40 @@ export async function convertToTaxInvoice(id: string) {
   return { success: true };
 }
 
+export async function convertToDeliveryChallan(id: string) {
+  const { supabase, userId } = await getUserId();
+
+  const { data: invoice, error: fetchError } = await supabase
+    .from("invoices")
+    .select("*, items:invoice_items(*)")
+    .eq("id", id)
+    .single();
+
+  if (fetchError || !invoice) return { error: "Invoice not found" };
+  if (invoice.type !== "TAX_INVOICE") {
+    return { error: "Only tax invoices can be converted to delivery challans" };
+  }
+
+  // Generate new DC- number
+  const { data: numData, error: numError } = await supabase.rpc(
+    "generate_invoice_number",
+    { p_user_id: userId, p_type: "DELIVERY_CHALLAN" }
+  );
+
+  if (numError) return { error: numError.message };
+
+  const { error: updateError } = await supabase
+    .from("invoices")
+    .update({ type: "DELIVERY_CHALLAN", invoice_number: numData as string })
+    .eq("id", id);
+
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/invoices");
+  revalidatePath(`/invoices/${id}`);
+  return { success: true };
+}
+
 export async function updateInvoice(id: string, input: unknown) {
   const parsed = invoiceSchema.safeParse(input);
   if (!parsed.success) {
@@ -190,9 +235,7 @@ export async function updateInvoice(id: string, input: unknown) {
   const freight = parsed.data.freight_charges || 0;
   const grandTotal = totals.subtotal + freight;
 
-  const { error: updateError } = await supabase
-    .from("invoices")
-    .update({
+  const updateData: Record<string, unknown> = {
       entity_id: parsed.data.entity_id,
       type: parsed.data.type,
       customer_id: parsed.data.customer_id,
@@ -201,7 +244,15 @@ export async function updateInvoice(id: string, input: unknown) {
       grand_total: grandTotal,
       show_total: parsed.data.show_total,
       notes: parsed.data.notes || null,
-    })
+    };
+
+  if (parsed.data.invoice_date) {
+    updateData.created_at = new Date(parsed.data.invoice_date).toISOString();
+  }
+
+  const { error: updateError } = await supabase
+    .from("invoices")
+    .update(updateData)
     .eq("id", id);
 
   if (updateError) return { error: updateError.message };
@@ -214,7 +265,7 @@ export async function updateInvoice(id: string, input: unknown) {
 
   if (deleteError) return { error: deleteError.message };
 
-  const items = parsed.data.items.map((item) => {
+  const items = parsed.data.items.map((item, index) => {
     const amount = Math.round(item.quantity * item.price * (1 - item.discount / 100) * 100) / 100;
     return {
       invoice_id: id,
@@ -224,6 +275,7 @@ export async function updateInvoice(id: string, input: unknown) {
       price: item.price,
       discount: item.discount,
       amount,
+      sort_order: index,
     };
   });
 
@@ -238,16 +290,23 @@ export async function updateInvoice(id: string, input: unknown) {
   return { success: true, id };
 }
 
-export async function getCustomerInvoices(customerId: string): Promise<Invoice[]> {
+export async function getCustomerInvoices(
+  customerId: string,
+  dateRange?: { from?: string; to?: string }
+): Promise<Invoice[]> {
   const { supabase } = await getUserId();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("invoices")
     .select("*, entity:entities!left(id, name)")
     .eq("customer_id", customerId)
     .eq("type", "TAX_INVOICE")
     .order("created_at", { ascending: false });
 
+  if (dateRange?.from) query = query.gte("created_at", dateRange.from);
+  if (dateRange?.to) query = query.lte("created_at", dateRange.to);
+
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data as Invoice[];
 }

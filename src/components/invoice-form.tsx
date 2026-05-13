@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import * as XLSX from "xlsx";
 import { createInvoice, updateInvoice } from "@/lib/actions/invoices";
 import { calculateInvoiceTotals, formatCurrency } from "@/lib/calculations";
 import { bulkProductItemSchema } from "@/lib/validations";
@@ -33,6 +32,12 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
   const [freightCharges, setFreightCharges] = useState(invoice?.freight_charges || 0);
   const [showTotal, setShowTotal] = useState(invoice?.show_total ?? true);
   const [notes, setNotes] = useState(invoice?.notes || "");
+  const [invoiceDate, setInvoiceDate] = useState(() => {
+    if (invoice?.created_at) {
+      return new Date(invoice.created_at).toISOString().split("T")[0];
+    }
+    return new Date().toISOString().split("T")[0];
+  });
   const [items, setItems] = useState<InvoiceItemInput[]>(
     invoice?.items?.map((item) => ({
       title: item.title,
@@ -64,10 +69,11 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const XLSX = await import("xlsx");
     const reader = new FileReader();
     reader.onload = (evt) => {
       const data = evt.target?.result;
@@ -112,6 +118,7 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
       freight_charges: freightCharges,
       show_total: type === "DELIVERY_CHALLAN" ? showTotal : true,
       notes,
+      invoice_date: invoiceDate,
       items,
     };
 
@@ -208,6 +215,17 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Invoice Date
+            </label>
+            <input
+              type="date"
+              value={invoiceDate}
+              onChange={(e) => setInvoiceDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
               Freight Charges
             </label>
             <input
@@ -243,7 +261,8 @@ export function InvoiceForm({ customers, entities, invoice }: InvoiceFormProps) 
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
+                const XLSX = await import("xlsx");
                 const ws = XLSX.utils.aoa_to_sheet([["title", "publisher", "quantity", "price", "discount"]]);
                 ws["!cols"] = [{ wch: 30 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
                 const wb = XLSX.utils.book_new();

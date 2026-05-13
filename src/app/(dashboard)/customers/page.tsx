@@ -1,109 +1,37 @@
-"use client";
-
-import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
-import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
-import { CustomerForm } from "@/components/customer-form";
-import {
-  getCustomersWithBalance,
-  createCustomer,
-  updateCustomer,
-  deleteCustomer,
-} from "@/lib/actions/customers";
+import { CustomerSearch } from "@/components/customer-search";
+import { CreateCustomerButton, CustomerRowActions } from "@/components/customer-actions";
+import { getCustomersWithBalance } from "@/lib/actions/customers";
 import { formatCurrency } from "@/lib/calculations";
-import type { Customer, CustomerWithBalance } from "@/lib/types";
-import {
-  Users,
-  Plus,
-  Search,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { Users } from "lucide-react";
 
-export default function CustomersPage() {
-  const [customers, setCustomers] = useState<CustomerWithBalance[]>([]);
-  const [search, setSearch] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
-  const [loading, setLoading] = useState(true);
+export default async function CustomersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | undefined }>;
+}) {
+  const params = await searchParams;
+  const search = params?.search || undefined;
 
-  const loadCustomers = useCallback(async () => {
-    setLoading(true);
-    const data = await getCustomersWithBalance(search || undefined);
-    setCustomers(data);
-    setLoading(false);
-  }, [search]);
-
-  useEffect(() => {
-    loadCustomers();
-  }, [loadCustomers]);
-
-  async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this customer?")) return;
-    await deleteCustomer(id);
-    loadCustomers();
-  }
+  const customers = await getCustomersWithBalance(search);
 
   return (
     <div>
       <PageHeader title="Customers" description="Manage your customer database">
-        <button
-          onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Add Customer
-        </button>
+        <CreateCustomerButton />
       </PageHeader>
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative w-full sm:max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-          <input
-            type="text"
-            placeholder="Search by name, phone, or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
-          />
-        </div>
-      </div>
+      <CustomerSearch />
 
-      {/* Customer List */}
-      {loading ? (
-        <div className="glass-card rounded-xl overflow-hidden animate-pulse">
-          <div className="flex items-center gap-4 px-6 py-3 border-b border-gray-200">
-            <div className="h-4 w-32 bg-gray-200 rounded" />
-            <div className="h-4 w-24 bg-gray-200 rounded" />
-            <div className="h-4 w-20 bg-gray-200 rounded" />
-            <div className="h-4 w-28 bg-gray-200 rounded ml-auto" />
-            <div className="h-4 w-16 bg-gray-200 rounded" />
-          </div>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-gray-50">
-              <div className="h-4 w-36 bg-gray-100 rounded" />
-              <div className="h-4 w-24 bg-gray-100 rounded" />
-              <div className="h-4 w-32 bg-gray-100 rounded" />
-              <div className="h-4 w-20 bg-gray-100 rounded ml-auto" />
-              <div className="h-4 w-16 bg-gray-100 rounded" />
-            </div>
-          ))}
-        </div>
-      ) : customers.length === 0 ? (
+      {customers.length === 0 ? (
         <EmptyState
           icon={Users}
           title="No customers yet"
           description="Add your first customer to start creating invoices."
         >
-          <button
-            onClick={() => setShowCreate(true)}
-            className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors"
-          >
-            Add Customer
-          </button>
+          <CreateCustomerButton />
         </EmptyState>
       ) : (
         <div className="glass-card rounded-xl overflow-x-auto">
@@ -147,10 +75,10 @@ export default function CustomersPage() {
                     </div>
                   </td>
                   <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-neutral-700 hidden sm:table-cell">
-                    {customer.phone || "—"}
+                    {customer.phone || "\u2014"}
                   </td>
                   <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-neutral-700 hidden md:table-cell">
-                    {customer.email || "—"}
+                    {customer.email || "\u2014"}
                   </td>
                   <td className="px-4 sm:px-6 py-3 sm:py-4 text-right">
                     <Link
@@ -167,22 +95,7 @@ export default function CustomersPage() {
                     </Link>
                   </td>
                   <td className="px-4 sm:px-6 py-3 sm:py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => setEditCustomer(customer)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-                        title="Edit"
-                      >
-                        <Pencil className="w-4 h-4 text-neutral-500" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(customer.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </button>
-                    </div>
+                    <CustomerRowActions customer={customer} />
                   </td>
                 </tr>
               ))}
@@ -190,39 +103,6 @@ export default function CustomersPage() {
           </table>
         </div>
       )}
-
-      {/* Create Modal */}
-      <Modal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-        title="Add Customer"
-      >
-        <CustomerForm
-          onSubmit={createCustomer}
-          onSuccess={() => {
-            setShowCreate(false);
-            loadCustomers();
-          }}
-        />
-      </Modal>
-
-      {/* Edit Modal */}
-      <Modal
-        open={!!editCustomer}
-        onClose={() => setEditCustomer(null)}
-        title="Edit Customer"
-      >
-        {editCustomer && (
-          <CustomerForm
-            customer={editCustomer}
-            onSubmit={(formData) => updateCustomer(editCustomer.id, formData)}
-            onSuccess={() => {
-              setEditCustomer(null);
-              loadCustomers();
-            }}
-          />
-        )}
-      </Modal>
     </div>
   );
 }

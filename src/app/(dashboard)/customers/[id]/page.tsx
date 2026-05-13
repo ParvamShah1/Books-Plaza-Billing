@@ -2,23 +2,81 @@ import { notFound } from "next/navigation";
 import { getCustomer } from "@/lib/actions/customers";
 import { getCustomerInvoices } from "@/lib/actions/invoices";
 import { getCustomerPayments, getCustomerBalance } from "@/lib/actions/payments";
+import type { DateFilter } from "@/lib/actions/payments";
 import { PageHeader } from "@/components/ui/page-header";
 import { formatCurrency } from "@/lib/calculations";
 import { CustomerPaymentSection } from "@/components/customer-payment-section";
+import { PaymentFilters } from "@/components/payment-filters";
+import { DownloadLedgerButton } from "@/components/download-ledger-button";
 import Link from "next/link";
 import { format } from "date-fns";
 
+function getDateRange(filters: DateFilter): { from?: string; to?: string } {
+  if (!filters.filter || filters.filter === "all") return {};
+
+  const now = new Date();
+
+  if (filters.filter === "last7days") {
+    const from = new Date(now);
+    from.setDate(from.getDate() - 7);
+    return { from: from.toISOString(), to: now.toISOString() };
+  }
+
+  if (filters.filter === "thisMonth") {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: from.toISOString(), to: now.toISOString() };
+  }
+
+  if (filters.filter === "lastMonth") {
+    const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    return { from: from.toISOString(), to: to.toISOString() };
+  }
+
+  if (filters.filter === "year" && filters.year) {
+    const yr = parseInt(filters.year);
+    const from = new Date(yr, 0, 1);
+    const to = new Date(yr, 11, 31, 23, 59, 59);
+    return { from: from.toISOString(), to: to.toISOString() };
+  }
+
+  if (filters.filter === "custom") {
+    const from = filters.startDate
+      ? new Date(filters.startDate).toISOString()
+      : undefined;
+    const to = filters.endDate
+      ? new Date(filters.endDate + "T23:59:59").toISOString()
+      : undefined;
+    return { from, to };
+  }
+
+  return {};
+}
+
 export default async function CustomerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | undefined }>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = await searchParams;
+
+  const dateFilter: DateFilter = {
+    filter: resolvedSearchParams?.filter || "all",
+    year: resolvedSearchParams?.year,
+    startDate: resolvedSearchParams?.startDate,
+    endDate: resolvedSearchParams?.endDate,
+  };
+
+  const dateRange = getDateRange(dateFilter);
+
   const [customer, invoices, payments, balance] = await Promise.all([
     getCustomer(id),
-    getCustomerInvoices(id),
-    getCustomerPayments(id),
-    getCustomerBalance(id),
+    getCustomerInvoices(id, dateRange),
+    getCustomerPayments(id, dateFilter),
+    getCustomerBalance(id, dateFilter),
   ]);
 
   if (!customer) notFound();
@@ -36,6 +94,11 @@ export default async function CustomerDetailPage({
           Back
         </Link>
       </PageHeader>
+
+      {/* Filters */}
+      <div className="glass-card rounded-xl p-4 mb-6 overflow-x-auto">
+        <PaymentFilters customerId={id} />
+      </div>
 
       {/* Balance Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -63,6 +126,18 @@ export default async function CustomerDetailPage({
             {balance.pendingAmount > 0 ? formatCurrency(balance.pendingAmount) : "Settled"}
           </p>
         </div>
+      </div>
+
+      {/* Download Ledger */}
+      <div className="flex justify-end mb-6">
+        <DownloadLedgerButton
+          customer={customer}
+          invoices={invoices}
+          payments={payments}
+          totalInvoiced={balance.totalInvoiced}
+          totalPaid={balance.totalPaid}
+          pendingAmount={balance.pendingAmount}
+        />
       </div>
 
       {/* Record Payment */}
@@ -108,7 +183,7 @@ export default async function CustomerDetailPage({
                       </Link>
                     </td>
                     <td className="px-4 sm:px-6 py-3 text-sm text-neutral-700">
-                      {inv.entity?.name || "—"}
+                      {inv.entity?.name || "\u2014"}
                     </td>
                     <td className="px-4 sm:px-6 py-3 text-sm font-medium text-neutral-900 text-right">
                       {formatCurrency(inv.grand_total)}
@@ -167,7 +242,7 @@ export default async function CustomerDetailPage({
                       </span>
                     </td>
                     <td className="px-4 sm:px-6 py-3 text-sm text-neutral-500">
-                      {payment.notes || "—"}
+                      {payment.notes || "\u2014"}
                     </td>
                   </tr>
                 ))}

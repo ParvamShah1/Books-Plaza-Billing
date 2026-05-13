@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { convertToTaxInvoice } from "@/lib/actions/invoices";
+import { convertToTaxInvoice, convertToDeliveryChallan } from "@/lib/actions/invoices";
 import type { Invoice } from "@/lib/types";
 import Link from "next/link";
 import { Printer, FileDown, ArrowRightLeft, Loader2, Pencil } from "lucide-react";
@@ -17,7 +17,9 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
 
   async function handleConvert() {
     setLoading("convert");
-    const result = await convertToTaxInvoice(invoice.id);
+    const result = invoice.type === "DELIVERY_CHALLAN"
+      ? await convertToTaxInvoice(invoice.id)
+      : await convertToDeliveryChallan(invoice.id);
     if (result?.error) {
       alert(result.error);
     } else {
@@ -56,20 +58,18 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
         Edit
       </Link>
 
-      {invoice.type === "DELIVERY_CHALLAN" && (
-        <button
-          onClick={handleConvert}
-          disabled={!!loading}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-neutral-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-        >
-          {loading === "convert" ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <ArrowRightLeft className="w-4 h-4" />
-          )}
-          Convert to Tax Invoice
-        </button>
-      )}
+      <button
+        onClick={handleConvert}
+        disabled={!!loading}
+        className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-neutral-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+      >
+        {loading === "convert" ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <ArrowRightLeft className="w-4 h-4" />
+        )}
+        {invoice.type === "DELIVERY_CHALLAN" ? "Convert to Tax Invoice" : "Convert to Delivery Challan"}
+      </button>
 
       <button
         onClick={handleDownloadPdf}

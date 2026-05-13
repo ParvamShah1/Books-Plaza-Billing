@@ -59,6 +59,7 @@ export type InvoiceItem = {
   price: number;
   discount: number;
   amount: number;
+  sort_order: number;
 };
 
 export type Payment = {

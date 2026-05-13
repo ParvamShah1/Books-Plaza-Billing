@@ -38,6 +38,7 @@ export const invoiceSchema = z.object({
   freight_charges: z.coerce.number().nonnegative("Freight must be non-negative").default(0),
   show_total: z.boolean().default(true),
   notes: z.string().optional().default(""),
+  invoice_date: z.string().optional(),
   items: z.array(invoiceItemSchema).min(1, "At least one item is required"),
 });
 

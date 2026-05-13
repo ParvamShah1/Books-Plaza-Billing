@@ -11,7 +11,7 @@ export async function generateInvoicePdf(invoiceNumber: string) {
   iframe.style.left = "-99999px";
   iframe.style.top = "0";
   iframe.style.width = "210mm";
-  iframe.style.height = "297mm";
+  iframe.style.height = "auto";
   iframe.style.border = "none";
   document.body.appendChild(iframe);
 
@@ -45,7 +45,7 @@ export async function generateInvoicePdf(invoiceNumber: string) {
   // Clone the invoice into the iframe
   const clone = element.cloneNode(true) as HTMLElement;
   clone.style.width = "210mm";
-  clone.style.height = "297mm";
+  clone.style.height = "auto";
   clone.style.minHeight = "297mm";
   clone.style.margin = "0";
   clone.style.border = "none";

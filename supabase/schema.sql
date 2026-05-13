@@ -100,7 +100,8 @@ create table public.invoice_items (
   quantity integer not null default 1 check (quantity > 0),
   price numeric(10,2) not null default 0 check (price >= 0),
   discount numeric(5,2) not null default 0 check (discount >= 0 and discount <= 100),
-  amount numeric(12,2) not null default 0
+  amount numeric(12,2) not null default 0,
+  sort_order integer not null default 0
 );
 
 create index idx_invoice_items_invoice_id on public.invoice_items (invoice_id);
