@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { fetchWithRetry } from "@/lib/supabase/fetch-retry";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -17,6 +18,7 @@ export async function updateSession(request: NextRequest) {
     supabaseUrl,
     supabaseAnonKey,
     {
+      global: { fetch: fetchWithRetry },
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -37,16 +39,19 @@ export async function updateSession(request: NextRequest) {
   );
 
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Verifies the JWT locally and refreshes the session cookie when needed
+    const { data } = await supabase.auth.getClaims();
+    const user = data?.claims;
 
     // Redirect unauthenticated users to login
     const isAuthPage =
       request.nextUrl.pathname.startsWith("/auth/login") ||
       request.nextUrl.pathname.startsWith("/auth/signup");
 
-    if (!user && !isAuthPage && request.nextUrl.pathname !== "/") {
+    // Bill links sent by SMS are public
+    const isPublicPage = request.nextUrl.pathname.startsWith("/b/");
+
+    if (!user && !isAuthPage && !isPublicPage && request.nextUrl.pathname !== "/") {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
       return NextResponse.redirect(url);
@@ -55,14 +60,14 @@ export async function updateSession(request: NextRequest) {
     // Redirect authenticated users away from auth pages
     if (user && isAuthPage) {
       const url = request.nextUrl.clone();
-      url.pathname = "/invoices";
+      url.pathname = "/pos";
       return NextResponse.redirect(url);
     }
 
     // Redirect root to dashboard if authenticated
     if (user && request.nextUrl.pathname === "/") {
       const url = request.nextUrl.clone();
-      url.pathname = "/invoices";
+      url.pathname = "/pos";
       return NextResponse.redirect(url);
     }
   } catch {
