@@ -46,13 +46,17 @@ export async function getSales(filters: {
     query = query.or(`invoice_no.ilike.%${s}%,phone.ilike.%${s}%`);
   }
 
+  // GET rpc sends args in the URL, where null becomes the text "null"; leave p_location out instead
+  const summaryArgs = filters.location_id
+    ? { p_from: start, p_to: end, p_location: filters.location_id }
+    : { p_from: start, p_to: end };
+
   const [{ data, error, count }, summary] = await Promise.all([
     query,
-    supabase
-      .rpc("sales_summary", { p_from: start, p_to: end, p_location: filters.location_id || null }, { get: true })
-      .single(),
+    supabase.rpc("sales_summary", summaryArgs, { get: true }).single(),
   ]);
   if (error) throw new Error(error.message);
+  if (summary.error) console.error("sales_summary error:", summary.error.message);
 
   return {
     sales: data as Sale[],
