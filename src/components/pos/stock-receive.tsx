@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ScanBarcode, Minus, Plus, X, Loader2, PackageCheck, Layers, BookOpen } from "lucide-react";
+import { ScanBarcode, Minus, Plus, X, Loader2, PackageCheck, Layers, BookOpen, FileSpreadsheet } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createStockReceipt } from "@/lib/actions/stock";
-import { quickAddBook } from "@/lib/actions/catalog";
+import { importSheetBooks, quickAddBook } from "@/lib/actions/catalog";
+import { readSupplierSheet, sheetCode, type SheetLine, type SkippedLine } from "@/lib/pos/sheet";
 import { toast } from "@/components/ui/toast";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +75,9 @@ export function StockReceive({
   const quickAdded = useRef(new Map<string, "pending" | LineItem>()); // isbn -> created book
   const createdItems = useRef(new Map<string, Item>()); // item id -> book created here, for editing
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [skipped, setSkipped] = useState<SkippedLine[]>([]); // sheet rows with a bad ISBN
+  const [fixing, setFixing] = useState<number | null>(null);
   const [restored, setRestored] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
 
@@ -198,6 +202,81 @@ export function StockReceive({
     scanRef.current?.focus();
   }
 
+  // Finds or creates the sheet's books and adds them to the list with the sheet's quantities
+  async function addSheetLines(sheetLines: SheetLine[]) {
+    const result = await importSheetBooks(
+      sheetLines.map((l) => ({
+        isbn: l.isbn,
+        name: l.name,
+        author: l.author,
+        publisher: l.publisher,
+        price: l.price,
+        cost_price: l.cost_price,
+      })),
+      newCategoryId
+    );
+    if (result.error || !result.items) return { error: result.error ?? "Could not import" };
+
+    const qtyOf = new Map(sheetLines.map((l) => [l.isbn, l.qty]));
+    const imported = result.items.map(({ item, isNew, noTitle }) => {
+      const line = { ...itemToLine(item), noTitle };
+      if (isNew && item.isbn) {
+        createdItems.current.set(item.id, item);
+        quickAdded.current.set(item.isbn, line);
+      }
+      return { ...line, qty: qtyOf.get(item.isbn ?? "") ?? 1 };
+    });
+    setLines((prev) => {
+      const byId = new Map(imported.map((l) => [l.item_id, l]));
+      const merged = prev.map((l) => {
+        const add = byId.get(l.item_id);
+        if (!add) return l;
+        byId.delete(l.item_id);
+        return { ...l, qty: l.qty + add.qty };
+      });
+      return [...[...byId.values()].map((l) => ({ ...l, codes: [] })), ...merged];
+    });
+    return { titles: imported.length, books: imported.reduce((sum, l) => sum + l.qty, 0), created: result.created, priced: result.priced };
+  }
+
+  // Supplier invoice / stock list: every row's book and quantity in one go
+  async function importSheet(file: File) {
+    if (!locationId) return toast.error("Choose where the stock is going");
+    setImporting(true);
+    try {
+      const sheet = await readSupplierSheet(file).catch(() => ({ error: "Couldn't read this file. Save it as .xlsx or .csv." }));
+      if ("error" in sheet) return toast.error(sheet.error);
+      if (!sheet.lines.length && !sheet.skipped.length) return toast.error("No rows with an ISBN in this sheet");
+
+      setSkipped(sheet.skipped);
+      if (!sheet.lines.length) return;
+      const result = await addSheetLines(sheet.lines);
+      if (result.error) return toast.error(result.error);
+
+      const extras = [
+        result.created && `${result.created} new books created`,
+        result.priced && `${result.priced} prices filled`,
+        !sheet.hasQty && "no Qty column, so 1 each",
+      ].filter(Boolean);
+      toast.success(`${result.titles} titles · ${formatQty(result.books ?? 0)} books from ${file.name}${extras.length ? ` (${extras.join(", ")})` : ""}`);
+    } finally {
+      setImporting(false);
+      scanRef.current?.focus();
+    }
+  }
+
+  // A skipped sheet row with its ISBN corrected (typed or scanned from the book)
+  async function fixSkipped(row: SkippedLine, value: string) {
+    const isbn = sheetCode(value);
+    if (!isbn) return toast.error(`${value || "This"} is still not a full ISBN. Scan the book's barcode.`);
+    setFixing(row.rowNo);
+    const result = await addSheetLines([{ ...row, isbn }]);
+    setFixing(null);
+    if (result.error) return toast.error(result.error);
+    setSkipped((prev) => prev.filter((r) => r.rowNo !== row.rowNo));
+    toast.success(`${row.name || isbn} added · ${formatQty(row.qty)} books`);
+  }
+
   function updateQty(itemId: string, qty: number) {
     setLines((prev) => prev.map((l) => (l.item_id === itemId ? { ...l, qty: Math.max(1, qty) } : l)));
   }
@@ -206,6 +285,7 @@ export function StockReceive({
     if (!locationId) return toast.error("Choose where the stock is going");
     if (lines.length === 0) return toast.error("Scan at least one book");
     if (pendingCount) return toast.error("Wait a second, new books are still being added");
+    if (skipped.length) return toast.error("Fix or ignore the sheet rows marked in yellow first");
     setSaving(true);
     const result = await createStockReceipt({
       location_id: locationId,
@@ -302,6 +382,28 @@ export function StockReceive({
                 />
               </div>
             </div>
+            <label
+              className={`flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-orange-300 bg-white text-sm font-medium text-orange-700 hover:bg-orange-50 ${
+                importing ? "opacity-60 pointer-events-none" : "cursor-pointer"
+              }`}
+            >
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+              {importing ? "Importing…" : "Import supplier Excel"}
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) importSheet(file);
+                }}
+              />
+            </label>
+            <p className="text-xs text-neutral-400 -mt-1.5">
+              Invoice or stock list with an ISBN column. Title, author, MRP and Qty are picked up when present.
+            </p>
           </div>
         )}
 
@@ -354,6 +456,25 @@ export function StockReceive({
             />
           </div>
         </div>
+
+        {skipped.length > 0 && (
+          <div className="border-b border-amber-200 bg-amber-50/60 px-4 py-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-amber-900">
+                {skipped.length === 1 ? "1 book" : `${skipped.length} books`} not added: the ISBN in the sheet is wrong
+              </p>
+              <button type="button" onClick={() => setSkipped([])} className="text-xs text-amber-700 hover:underline">
+                Ignore all
+              </button>
+            </div>
+            <p className="text-xs text-amber-800/80">
+              Check the box against the barcode on the book (or scan it into the box), then press Add.
+            </p>
+            {skipped.map((row) => (
+              <SkippedRow key={row.rowNo} row={row} busy={fixing === row.rowNo} onFix={fixSkipped} onIgnore={() => setSkipped((prev) => prev.filter((r) => r.rowNo !== row.rowNo))} />
+            ))}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           {lines.length === 0 ? (
@@ -501,6 +622,58 @@ function toLineItem(item: PosItem) {
 
 function itemToLine(item: Item) {
   return { item_id: item.id, name: item.name, code: item.code, kind: item.kind, price: Number(item.price) };
+}
+
+function SkippedRow({
+  row,
+  busy,
+  onFix,
+  onIgnore,
+}: {
+  row: SkippedLine;
+  busy: boolean;
+  onFix: (row: SkippedLine, value: string) => void;
+  onIgnore: () => void;
+}) {
+  const [value, setValue] = useState(row.suggestion ?? row.isbn);
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-white border border-amber-200 px-3 py-2">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-neutral-900 truncate">{row.name || "No title in sheet"}</p>
+        <p className="text-xs text-neutral-500">
+          Row {row.rowNo} · {formatQty(row.qty)} books{row.price ? ` · ${formatRupees(row.price)}` : ""}
+        </p>
+        <p className="text-xs text-red-600">
+          Sheet says <span className="font-mono">{row.isbn}</span>, which {row.problem}.
+          {row.suggestion && <span className="text-emerald-700"> Probably {row.suggestion} (filled in).</span>}
+        </p>
+      </div>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onFix(row, value.trim());
+          }
+        }}
+        placeholder="Correct ISBN"
+        className="w-44 px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onFix(row, value.trim())}
+        className="px-3 py-1.5 rounded-lg bg-orange-500 text-white text-sm font-medium hover:bg-orange-600 disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
+      </button>
+      <button type="button" onClick={onIgnore} title="Leave this row out" className="p-1.5 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
 }
 
 function ModeButton({

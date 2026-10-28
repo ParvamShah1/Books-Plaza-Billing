@@ -264,3 +264,95 @@ export async function quickAddBook(isbn: string, categoryId: string, price: stri
   if (result.error || !result.item) return { error: result.error ?? "Could not add the book" };
   return { item: result.item, found: !!info };
 }
+
+export type SheetRow = {
+  isbn: string; // valid ISBN-13, or the publisher's own product code
+  name: string;
+  author: string;
+  publisher: string;
+  price: number | null;
+  cost_price: number | null;
+};
+
+// Receiving from a supplier's Excel: finds each ISBN's book, creates the missing ones with the
+// sheet's title and price (Google / Open Library only when the sheet has no title)
+export async function importSheetBooks(rows: SheetRow[], categoryId: string) {
+  const supabase = await createClient();
+  const select = "*, category:categories!left(id, name, sell_by)";
+
+  const existing = new Map<string, Item>();
+  const isbns = rows.map((r) => r.isbn);
+  for (let i = 0; i < isbns.length; i += 200) {
+    const { data, error } = await supabase
+      .from("items")
+      .select(select)
+      .eq("kind", "PUBLISHER")
+      .in("isbn", isbns.slice(i, i + 200));
+    if (error) return { error: error.message };
+    for (const item of data as Item[]) if (item.isbn && !existing.has(item.isbn)) existing.set(item.isbn, item);
+  }
+
+  const missing = rows.filter((r) => !existing.has(r.isbn));
+  if (missing.length && !categoryId) return { error: "Choose a category for the new books first" };
+
+  // Online lookups are slow, so only for a sheet's worth of rows without a title
+  const untitled = missing.filter((r) => !r.name);
+  const lookedUp = new Map<string, Awaited<ReturnType<typeof lookupIsbn>>>();
+  if (untitled.length <= 150) {
+    for (let i = 0; i < untitled.length; i += 6) {
+      const batch = untitled.slice(i, i + 6);
+      const infos = await Promise.all(batch.map((r) => lookupIsbn(r.isbn)));
+      batch.forEach((r, j) => lookedUp.set(r.isbn, infos[j]));
+    }
+  }
+
+  const notFound = new Set<string>();
+  const inserts = [];
+  for (const r of missing) {
+    const info = lookedUp.get(r.isbn);
+    if (!r.name && !info) notFound.add(r.isbn);
+    const parsed = itemSchema.safeParse({
+      kind: "PUBLISHER",
+      name: r.name || info?.title || `ISBN ${r.isbn}`,
+      isbn: r.isbn,
+      author: r.author || info?.author || "",
+      publisher: r.publisher || info?.publisher || "",
+      category_id: categoryId,
+      price: r.price ?? 0,
+      cost_price: r.cost_price ?? "",
+    });
+    if (!parsed.success) return { error: `${r.isbn}: ${parsed.error.issues[0].message}` };
+    inserts.push(parsed.data);
+  }
+
+  const created: Item[] = [];
+  for (let i = 0; i < inserts.length; i += 200) {
+    const { data, error } = await supabase.from("items").insert(inserts.slice(i, i + 200)).select(select);
+    if (error) return { error: error.message };
+    created.push(...(data as Item[]));
+  }
+
+  // Books added earlier without a price (fast receiving) get the sheet's price
+  let priced = 0;
+  for (const r of rows) {
+    const item = existing.get(r.isbn);
+    if (!item || Number(item.price) > 0 || !r.price) continue;
+    const { data } = await supabase.from("items").update({ price: r.price }).eq("id", item.id).select(select);
+    if (data?.length) {
+      existing.set(r.isbn, data[0] as Item);
+      priced++;
+    }
+  }
+
+  if (created.length) revalidatePath("/items");
+  const createdIds = new Set(created.map((i) => i.id));
+  return {
+    items: [...existing.values(), ...created].map((item) => ({
+      item,
+      isNew: createdIds.has(item.id),
+      noTitle: notFound.has(item.isbn ?? ""),
+    })),
+    created: created.length,
+    priced,
+  };
+}

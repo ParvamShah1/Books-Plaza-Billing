@@ -2,13 +2,14 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { requireRole } from "@/lib/pos/guard";
 import { getLocations } from "@/lib/actions/catalog";
-import { getSales } from "@/lib/actions/sales";
+import { getCategorySales, getSales } from "@/lib/actions/sales";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { UrlFilters } from "@/components/pos/url-filters";
 import { SaleRowActions } from "@/components/pos/sale-row-actions";
+import { CategorySalesTable } from "@/components/pos/category-sales-table";
 import { InvoicePagination } from "@/components/invoice-pagination";
 import { primaryButtonClass } from "@/components/pos/form-styles";
 import { formatQty, formatRupees } from "@/lib/pos/billing";
@@ -26,6 +27,7 @@ const statusTabs = [
   { value: "PAID", label: "Paid" },
   { value: "HELD", label: "On hold" },
   { value: "CANCELLED", label: "Cancelled" },
+  { value: "CATEGORY", label: "By category" },
 ];
 
 export default async function SalesPage({
@@ -40,18 +42,21 @@ export default async function SalesPage({
   const from = params.from || today;
   const to = params.to || from;
   const status = params.status || "PAID";
+  const byCategory = status === "CATEGORY";
+  const locationId = isAdmin ? params.location : staff.location_id ?? undefined;
 
-  const [locations, { sales, total, summary }] = await Promise.all([
+  const [locations, { sales, total, summary }, categorySales] = await Promise.all([
     getLocations(),
     getSales({
       from,
       to,
-      status,
-      location_id: isAdmin ? params.location : staff.location_id ?? undefined,
+      status: byCategory ? "PAID" : status,
+      location_id: locationId,
       search: params.search,
       page: Number(params.page || "1"),
       pageSize: PAGE_SIZE,
     }),
+    byCategory ? getCategorySales({ from, to, location_id: locationId }) : null,
   ]);
 
   const th = "px-4 py-3 text-xs font-medium text-neutral-500 uppercase tracking-wider";
@@ -93,7 +98,7 @@ export default async function SalesPage({
       </div>
 
       <UrlFilters
-        searchPlaceholder="Bill number or mobile"
+        searchPlaceholder={byCategory ? undefined : "Bill number or mobile"}
         dates={[
           { name: "from", label: "From", defaultValue: from },
           { name: "to", label: "To", defaultValue: to },
@@ -111,7 +116,20 @@ export default async function SalesPage({
         }
       />
 
-      {sales.length === 0 ? (
+      {categorySales ? (
+        categorySales.length === 0 ? (
+          <div className="glass-card rounded-xl">
+            <EmptyState icon={Receipt} title="No sales" description="Category totals for the selected days will show here." />
+          </div>
+        ) : (
+          <CategorySalesTable
+            rows={categorySales}
+            fileName={`Category sales ${from === to ? from : `${from} to ${to}`}${
+              locationId ? ` ${locations.find((l) => l.id === locationId)?.name ?? ""}` : ""
+            }`}
+          />
+        )
+      ) : sales.length === 0 ? (
         <div className="glass-card rounded-xl">
           <EmptyState icon={Receipt} title="No bills" description="Bills for the selected days will show here." />
         </div>

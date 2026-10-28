@@ -4,7 +4,7 @@ import { Receipt, type ReceiptData } from "@/components/pos/receipt";
 
 export const metadata = { title: "Your bill - Books Plaza" };
 
-// Opened from the SMS link, no login needed
+// Opened from the WhatsApp link, no login needed
 export default async function PublicBillPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(token)) notFound();

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { searchCustomerPhones, sendBillSms } from "@/lib/actions/sales";
+import { checkCoupon, searchCustomerPhones, sendBillWhatsApp } from "@/lib/actions/sales";
+import { sendPurchaseToMeta } from "@/lib/actions/meta";
 import { billTotals, formatQty, formatRupees, isValidMobile, lineAmounts } from "@/lib/pos/billing";
 import type { Category, CurrentStaff, Location, PaymentMode, PosItem, SellBy } from "@/lib/pos/types";
 import { toast } from "@/components/ui/toast";
@@ -22,6 +23,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
+  Ticket,
 } from "lucide-react";
 
 type Line = {
@@ -76,6 +78,9 @@ export function PosScreen({
   const [saving, setSaving] = useState(false);
   const [lastBill, setLastBill] = useState<LastBill | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
+  const [coupon, setCoupon] = useState<{ code: string; pct: number; phone: string } | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [couponChecking, setCouponChecking] = useState(false);
 
   // Catalog panel
   const [categoryId, setCategoryId] = useState("");
@@ -85,14 +90,19 @@ export function PosScreen({
 
   const phoneRef = useRef<HTMLInputElement>(null);
   const scanRef = useRef<HTMLInputElement>(null);
+  const couponRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const qtyRefs = useRef(new Map<string, HTMLInputElement>());
   const printFrame = useRef<HTMLIFrameElement | null>(null);
 
   const location = locations.find((l) => l.id === locationId);
   const totals = useMemo(
-    () => billTotals(lines.map((l) => ({ qty: num(l.qty), price: num(l.price), discount: l.discount }))),
-    [lines]
+    () =>
+      billTotals(
+        lines.map((l) => ({ qty: num(l.qty), price: num(l.price), discount: l.discount })),
+        coupon?.pct ?? 0
+      ),
+    [lines, coupon]
   );
   const phoneValid = phone === "" || isValidMobile(phone);
   const visibleMatches = canNameSearch(scan.trim()) ? nameMatches : [];
@@ -104,7 +114,7 @@ export function PosScreen({
     if (!locationId) return [];
     const { data } = await supabase
       .from("sales")
-      .select("id, hold_ref, phone, payable, total_qty, created_at")
+      .select("id, hold_ref, phone, payable, total_qty, created_at, coupon_code")
       .eq("status", "HELD")
       .eq("location_id", locationId)
       .order("created_at", { ascending: false });
@@ -244,7 +254,32 @@ export function PosScreen({
     setHoldRef("");
     setScan("");
     setNameMatches([]);
+    setCoupon(null);
+    setCouponInput("");
     phoneRef.current?.focus();
+  }
+
+  // ---------- Coupon ----------
+  async function applyCoupon(code = couponInput, forPhone = phone) {
+    const clean = code.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    if (!clean) return;
+    if (!isValidMobile(forPhone)) {
+      toast.error("Enter the customer mobile number first. Coupons work only for their own number.");
+      phoneRef.current?.focus();
+      return;
+    }
+    setCouponChecking(true);
+    const result = await checkCoupon(clean, forPhone);
+    setCouponChecking(false);
+    if (!result.ok) {
+      toast.error(result.message);
+      couponRef.current?.select();
+      return;
+    }
+    setCoupon({ code: result.code, pct: Number(result.discount_pct), phone: forPhone });
+    setCouponInput("");
+    toast.success(`Coupon ${result.code} applied · ${Number(result.discount_pct)}% off`);
+    scanRef.current?.focus();
   }
 
   // ---------- Scanning ----------
@@ -335,6 +370,7 @@ export function PosScreen({
         status,
         payment_mode: mode ?? null,
         hold_ref: ref ?? holdRef,
+        coupon_code: coupon?.code ?? null,
         items: lines.map((l) => ({ item_id: l.item_id, qty: num(l.qty), price: num(l.price) })),
       },
     });
@@ -342,15 +378,25 @@ export function PosScreen({
 
     if (error) {
       toast.error(error.message);
+      // Someone used the code in the meantime: drop it so the cashier can bill without it
+      if (error.message.startsWith("Coupon ")) setCoupon(null);
       return false;
     }
 
-    const result = data as { id: string; invoice_no: string | null; payable: number };
+    const result = data as { id: string; invoice_no: string | null; payable: number; coupon: string | null };
     if (status === "PAID") {
       printReceipt(result.id);
-      if (phone) sendBillSms(result.id).catch(() => {});
+      if (phone) {
+        sendBillWhatsApp(result.id).then((r) => {
+          if ("error" in r) toast.error(`Bill ${result.invoice_no}: ${r.error}`);
+        });
+        // Ad tracking only: failures are logged on the server, the cashier doesn't need to know
+        sendPurchaseToMeta(result.id);
+      }
       setLastBill({ id: result.id, invoice_no: result.invoice_no!, payable: Number(result.payable) });
-      toast.success(`Bill ${result.invoice_no} saved`);
+      toast.success(
+        result.coupon ? `Bill ${result.invoice_no} saved · coupon ${result.coupon}` : `Bill ${result.invoice_no} saved`
+      );
     } else {
       toast.success("Bill put on hold");
     }
@@ -407,6 +453,8 @@ export function PosScreen({
     setHeldSaleId(bill.id);
     setHoldRef(bill.hold_ref ?? "");
     setPhone(bill.phone ?? "");
+    setCoupon(null);
+    if (bill.coupon_code && bill.phone) applyCoupon(bill.coupon_code, bill.phone);
     setHeldOpen(false);
     setTimeout(() => scanRef.current?.focus(), 0);
   }
@@ -430,6 +478,9 @@ export function PosScreen({
       } else if (e.key === "F3") {
         e.preventDefault();
         scanRef.current?.focus();
+      } else if (e.key === "F6") {
+        e.preventDefault();
+        couponRef.current?.focus();
       } else if (e.key === "F4") {
         e.preventDefault();
         startHold();
@@ -497,6 +548,10 @@ export function PosScreen({
                   onChange={(e) => {
                     const v = e.target.value.replace(/\D/g, "").slice(0, 10);
                     setPhone(v);
+                    if (coupon && v !== coupon.phone) {
+                      setCoupon(null);
+                      toast.info("Coupon removed: it belongs to the previous mobile number");
+                    }
                     if (v.length === 10 && isValidMobile(v)) scanRef.current?.focus();
                   }}
                   onKeyDown={(e) => {
@@ -530,6 +585,7 @@ export function PosScreen({
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setPhone(p);
+                        if (coupon && p !== coupon.phone) setCoupon(null);
                         setPhoneSuggestions([]);
                         scanRef.current?.focus();
                       }}
@@ -770,11 +826,60 @@ export function PosScreen({
 
         {/* Totals + pay */}
         <div className="border-t border-gray-100 p-4 space-y-3">
+          {coupon ? (
+            <div className="flex items-center gap-2 text-sm rounded-xl border border-green-200 bg-green-50 px-3 py-2">
+              <Ticket className="w-4 h-4 text-green-600" />
+              <span className="font-semibold text-green-800 tracking-wider">{coupon.code}</span>
+              <span className="text-green-700">
+                {coupon.pct}% off · -{totals.coupon.toFixed(2)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCoupon(null)}
+                title="Remove coupon"
+                className="ml-auto p-1 rounded-md text-green-700 hover:bg-green-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                <input
+                  ref={couponRef}
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      applyCoupon();
+                    }
+                  }}
+                  placeholder="Coupon code  (F6)"
+                  className={`${inputClass} pl-9 tracking-wider`}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => applyCoupon()}
+                disabled={!couponInput.trim() || couponChecking}
+                className="flex items-center gap-1.5 px-4 rounded-lg border border-gray-200 bg-white/80 text-sm font-medium text-neutral-700 hover:bg-white disabled:opacity-50"
+              >
+                {couponChecking && <Loader2 className="w-4 h-4 animate-spin" />}
+                Apply
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <Total label="Total qty" value={formatQty(totals.qty)} />
             <Total label="MRP" value={totals.mrp.toFixed(2)} />
-            <Total label="Discount" value={totals.discount.toFixed(2)} accent={totals.discount > 0 ? "green" : undefined} />
-            <Total label="Amount" value={totals.amount.toFixed(2)} />
+            <Total
+              label="Discount"
+              value={(totals.discount + totals.coupon).toFixed(2)}
+              accent={totals.discount + totals.coupon > 0 ? "green" : undefined}
+            />
+            <Total label="Amount" value={(totals.amount - totals.coupon).toFixed(2)} />
             <div className="col-span-2 sm:col-span-1 rounded-xl bg-orange-500 text-white px-3 py-2">
               <div className="text-[11px] font-medium uppercase tracking-wider text-orange-100">Payable</div>
               <div className="text-2xl font-bold leading-tight">{formatRupees(totals.payable)}</div>

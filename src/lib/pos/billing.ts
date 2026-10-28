@@ -30,7 +30,8 @@ export function lineAmounts(line: BillLine) {
   return { gross, discountAmt, amount: round2(gross - discountAmt) };
 }
 
-export function billTotals(lines: BillLine[]) {
+// couponPct: one-time coupon, taken off after category discounts (same as save_sale)
+export function billTotals(lines: BillLine[], couponPct = 0) {
   let qty = 0;
   let mrp = 0;
   let discount = 0;
@@ -41,12 +42,14 @@ export function billTotals(lines: BillLine[]) {
     discount += discountAmt;
   }
   const amount = round2(mrp - discount);
+  const coupon = round2((amount * couponPct) / 100);
   return {
     qty: Math.round(qty * 1000) / 1000,
     mrp: round2(mrp),
     discount: round2(discount),
     amount,
-    payable: Math.round(amount),
+    coupon,
+    payable: Math.round(amount - coupon),
   };
 }
 

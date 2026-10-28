@@ -72,11 +72,34 @@ export async function getSales(filters: {
   };
 }
 
+export type CategorySales = { category: string; bills: number; qty: number; mrp: number; discount: number; amount: number };
+
+export async function getCategorySales(filters: { from: string; to: string; location_id?: string }) {
+  const supabase = await createClient();
+  const { start, end } = istDayRange(filters.from, filters.to);
+  const args = filters.location_id
+    ? { p_from: start, p_to: end, p_location: filters.location_id }
+    : { p_from: start, p_to: end };
+
+  const { data, error } = await supabase.rpc("category_sales", args);
+  if (error) throw new Error(error.message);
+  return (data as CategorySales[]).map((r) => ({
+    ...r,
+    bills: Number(r.bills),
+    qty: Number(r.qty),
+    mrp: Number(r.mrp),
+    discount: Number(r.discount),
+    amount: Number(r.amount),
+  }));
+}
+
 export async function getSale(id: string): Promise<Sale | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("sales")
-    .select("*, location:locations!left(id, name, code, address), items:sale_items(*)")
+    .select(
+      "*, location:locations!left(id, name, code, address), items:sale_items(*), next_coupon:coupons!coupons_issued_sale_id_fkey(code, discount_pct, status)"
+    )
     .eq("id", id)
     .single();
 
@@ -111,17 +134,20 @@ export async function searchCustomerPhones(prefix: string): Promise<string[]> {
   return (data || []).map((c) => c.phone as string);
 }
 
-// Sends the "thank you + bill link" SMS through MSG91. Called after billing, never blocks the cashier.
-export async function sendBillSms(saleId: string) {
-  const authKey = process.env.MSG91_AUTH_KEY;
-  const templateId = process.env.MSG91_TEMPLATE_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!authKey || !templateId || !appUrl) return { skipped: "SMS not configured" };
+// Sends the bill + next-visit coupon on WhatsApp. Called after billing, never blocks the cashier.
+// Goes through Chatbox's API (paid from the Chatbox wallet, shows in its API Message Report),
+// with a template approved in Chatbox: body {{1}} exhibition, {{2}} bill amount, {{3}} coupon code;
+// first button "View your bill" opens <app>/b/{{1}} with the bill's public token, second is the website.
+export async function sendBillWhatsApp(saleId: string) {
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const apiKey = process.env.CHATBOX_API_KEY;
+  const template = process.env.WHATSAPP_TEMPLATE_NAME;
+  if (!phoneNumberId || !apiKey || !template) return { skipped: "WhatsApp not configured" };
 
   const supabase = await createClient();
   const { data: sale } = await supabase
     .from("sales")
-    .select("phone, status, public_token, location:locations!left(name)")
+    .select("phone, status, payable, public_token, location:locations!left(name), next_coupon:coupons!coupons_issued_sale_id_fkey(code)")
     .eq("id", saleId)
     .single();
 
@@ -131,26 +157,53 @@ export async function sendBillSms(saleId: string) {
   }
 
   const location = sale.location as unknown as { name: string } | null;
+  const coupon = (sale.next_coupon as unknown as { code: string }[] | { code: string } | null);
+  const couponCode = Array.isArray(coupon) ? coupon[0]?.code : coupon?.code;
+  const text = (value: string) => ({ type: "text", text: value });
+
   try {
-    const res = await fetch("https://control.msg91.com/api/v5/flow/", {
+    const res = await fetch(`https://api.chatbox.biz/v3/${phoneNumberId}/messages`, {
       method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json", authkey: authKey },
+      headers: { apikey: apiKey, "content-type": "application/json" },
       body: JSON.stringify({
-        template_id: templateId,
-        short_url: "1",
-        recipients: [
-          {
-            mobiles: `91${phone}`,
-            var: location?.name || "Books Plaza",
-            var1: `${appUrl.replace(/\/$/, "")}/b/${sale.public_token}`,
-          },
-        ],
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: `91${phone}`,
+        type: "template",
+        template: {
+          name: template,
+          language: { code: process.env.WHATSAPP_TEMPLATE_LANG || "en" },
+          components: [
+            {
+              type: "body",
+              parameters: [
+                text(location?.name || "Books Plaza"),
+                text(String(Number(sale.payable))),
+                text(couponCode || "-"),
+              ],
+            },
+            { type: "button", sub_type: "url", index: "0", parameters: [text(sale.public_token)] },
+          ],
+        },
       }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return { error: `SMS failed (${res.status})` };
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      console.error("WhatsApp send failed:", res.status, body?.error?.message);
+      return { error: `WhatsApp failed (${res.status})` };
+    }
     return { success: true };
-  } catch {
-    return { error: "SMS failed" };
+  } catch (e) {
+    console.error("WhatsApp send failed:", e);
+    return { error: "WhatsApp failed" };
   }
+}
+
+// Coupons only work for the mobile number they were sent to
+export async function checkCoupon(code: string, phone: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("check_coupon", { p_code: code, p_phone: phone || null });
+  if (error) return { ok: false as const, message: error.message };
+  return data as { ok: true; code: string; discount_pct: number } | { ok: false; message: string };
 }

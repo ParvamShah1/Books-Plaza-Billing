@@ -86,7 +86,10 @@ export type Sale = {
   paid_at: string | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
+  coupon_code: string | null;
+  coupon_discount: number;
   location?: Pick<Location, "id" | "name" | "code" | "address"> | null;
+  next_coupon?: { code: string; discount_pct: number; status: string } | null;
   items?: SaleItem[];
 };
 

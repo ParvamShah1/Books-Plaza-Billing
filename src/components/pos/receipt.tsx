@@ -10,6 +10,9 @@ export type ReceiptData = {
   total_mrp: number;
   total_discount: number;
   payable: number;
+  coupon_code?: string | null;
+  coupon_discount?: number;
+  next_coupon?: { code: string; discount_pct: number } | null;
   location_name: string;
   location_address: string;
   items: { name: string; qty: number; price: number; discount_amt: number; amount: number }[];
@@ -27,7 +30,8 @@ function compact(n: number) {
 
 // 80mm thermal receipt. Also used (wider) for the public bill page.
 export function Receipt({ data, cancelled = false }: { data: ReceiptData; cancelled?: boolean }) {
-  const savings = Number(data.total_discount);
+  const couponDiscount = Number(data.coupon_discount ?? 0);
+  const savings = Number(data.total_discount) + couponDiscount;
 
   return (
     <div className="receipt text-black bg-white" style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
@@ -91,8 +95,11 @@ export function Receipt({ data, cancelled = false }: { data: ReceiptData; cancel
       <div className="text-xs space-y-0.5">
         <div className="flex justify-between"><span>Total qty</span><span>{formatQty(Number(data.total_qty))}</span></div>
         <div className="flex justify-between"><span>MRP total</span><span>{money(data.total_mrp)}</span></div>
-        {savings > 0 && (
-          <div className="flex justify-between"><span>Discount</span><span>-{money(savings)}</span></div>
+        {Number(data.total_discount) > 0 && (
+          <div className="flex justify-between"><span>Discount</span><span>-{money(data.total_discount)}</span></div>
+        )}
+        {couponDiscount > 0 && (
+          <div className="flex justify-between"><span>Coupon {data.coupon_code}</span><span>-{money(couponDiscount)}</span></div>
         )}
       </div>
       <div className="flex justify-between font-bold text-base border-t border-black mt-1 pt-1">
@@ -101,6 +108,17 @@ export function Receipt({ data, cancelled = false }: { data: ReceiptData; cancel
       </div>
       {savings > 0 && (
         <p className="text-center text-xs font-semibold mt-1">You saved ₹{money(savings)}</p>
+      )}
+
+      {data.next_coupon && !cancelled && (
+        <div className="border border-black border-dashed rounded mt-3 p-2 text-center">
+          <p className="text-xs font-semibold">Your gift for the next visit</p>
+          <p className="text-lg font-bold tracking-widest">{data.next_coupon.code}</p>
+          <p className="text-[11px]">
+            {Number(data.next_coupon.discount_pct)}% off your next bill at any Books Plaza exhibition. Valid once,
+            only for the mobile number on this bill.
+          </p>
+        </div>
       )}
 
       <div className="border-t border-dashed border-black my-2" />

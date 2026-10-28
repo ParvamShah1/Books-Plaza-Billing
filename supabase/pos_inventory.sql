@@ -212,7 +212,9 @@ create table public.sales (
   created_at timestamptz not null default now(),
   paid_at timestamptz,
   cancelled_at timestamptz,
-  cancel_reason text
+  cancel_reason text,
+  coupon_code text, -- coupon redeemed on this bill
+  coupon_discount numeric(12,2) not null default 0
 );
 
 create unique index idx_sales_invoice_no on public.sales (invoice_no);
@@ -236,6 +238,23 @@ create table public.sale_items (
 
 create index idx_sale_items_sale_id on public.sale_items (sale_id);
 create index idx_sale_items_item_id on public.sale_items (item_id);
+
+-- One-time discount codes handed out with each paid bill
+create table public.coupons (
+  id uuid not null default gen_random_uuid() primary key,
+  code text not null,
+  discount_pct numeric(5,2) not null default 5 check (discount_pct > 0 and discount_pct <= 100),
+  phone text,
+  issued_sale_id uuid references public.sales on delete cascade,
+  status text not null default 'ACTIVE' check (status in ('ACTIVE', 'REDEEMED', 'VOID')),
+  redeemed_sale_id uuid references public.sales on delete set null,
+  redeemed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create unique index idx_coupons_code on public.coupons (code);
+create unique index idx_coupons_issued_sale on public.coupons (issued_sale_id);
+create index idx_coupons_redeemed_sale on public.coupons (redeemed_sale_id);
 
 -- Per location, per month invoice counter (same format as the old software)
 create table public.invoice_counters (
@@ -386,7 +405,96 @@ as $$
     and (p_location is null or location_id = p_location);
 $$;
 
+-- Paid sales per category. A bill's coupon and round-off are shared across its lines by
+-- amount, so the categories add up to the bills' total.
+create or replace function public.category_sales(p_from timestamptz, p_to timestamptz, p_location uuid default null)
+returns table (category text, bills bigint, qty numeric, mrp numeric, discount numeric, amount numeric)
+language sql stable
+set search_path = ''
+as $$
+  select category, bills, qty, mrp, mrp - amount, amount
+  from (
+    select coalesce(c.name, 'No category') as category,
+           count(distinct s.id) as bills,
+           sum(si.qty) as qty,
+           round(sum(si.qty * si.price), 2) as mrp,
+           round(sum(si.amount * case when s.total_amount > 0 then s.payable / s.total_amount else 0 end), 2) as amount
+    from public.sales s
+    join public.sale_items si on si.sale_id = s.id
+    join public.items i on i.id = si.item_id
+    left join public.categories c on c.id = i.category_id
+    where s.status = 'PAID' and s.paid_at >= p_from and s.paid_at < p_to
+      and (p_location is null or s.location_id = p_location)
+    group by c.name
+  ) t
+  order by amount desc;
+$$;
+
 -- Create a held bill, update a held bill, or complete a bill (PAID)
+-- "BP" + 6 characters without look-alikes (no 0/O/1/I), from random uuid bytes
+create or replace function public.new_coupon_code()
+returns text
+language plpgsql volatile
+set search_path = ''
+as $$
+declare
+  v_chars constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  v_bytes bytea;
+  v_code text;
+begin
+  loop
+    v_bytes := uuid_send(gen_random_uuid());
+    v_code := 'BP';
+    for i in 0..5 loop
+      v_code := v_code || substr(v_chars, 1 + get_byte(v_bytes, i) % 32, 1);
+    end loop;
+    exit when not exists (select 1 from public.coupons where code = v_code);
+  end loop;
+  return v_code;
+end;
+$$;
+
+-- Same clean-up the billing screen does: upper case, letters and digits only
+create or replace function public.clean_coupon_code(p_code text)
+returns text
+language sql immutable
+set search_path = ''
+as $$
+  select nullif(upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g')), '');
+$$;
+
+-- Billing screen check before payment. A coupon only works for the mobile it was sent to.
+create or replace function public.check_coupon(p_code text, p_phone text)
+returns jsonb
+language plpgsql stable
+security definer set search_path = ''
+as $$
+declare
+  v_coupon public.coupons%rowtype;
+begin
+  if not public.is_staff() then
+    raise exception 'Not allowed';
+  end if;
+  select * into v_coupon from public.coupons where code = public.clean_coupon_code(p_code);
+  if not found then
+    return jsonb_build_object('ok', false, 'message', 'Coupon not found');
+  end if;
+  if v_coupon.status = 'REDEEMED' then
+    return jsonb_build_object('ok', false, 'message', 'This coupon was already used');
+  end if;
+  if v_coupon.status <> 'ACTIVE' then
+    return jsonb_build_object('ok', false, 'message', 'This coupon is no longer valid');
+  end if;
+  if v_coupon.phone is not null and nullif(trim(p_phone), '') is null then
+    return jsonb_build_object('ok', false, 'message', 'Enter the customer mobile number first');
+  end if;
+  if v_coupon.phone is distinct from trim(p_phone) and v_coupon.phone is not null then
+    return jsonb_build_object('ok', false, 'message', 'This coupon belongs to another mobile number');
+  end if;
+  return jsonb_build_object('ok', true, 'code', v_coupon.code, 'discount_pct', v_coupon.discount_pct);
+end;
+$$;
+
 create or replace function public.save_sale(p jsonb)
 returns jsonb
 language plpgsql
@@ -416,6 +524,12 @@ declare
   v_next integer;
   v_invoice text;
   v_token uuid;
+  v_coupon_code text := public.clean_coupon_code(p->>'coupon_code');
+  v_coupon public.coupons%rowtype;
+  v_coupon_disc numeric := 0;
+  v_amount numeric;
+  v_payable numeric;
+  v_new_coupon text;
 begin
   if not public.can_use_location(v_location) then
     raise exception 'You cannot bill for this location';
@@ -492,6 +606,21 @@ begin
     v_total_disc := v_total_disc + v_disc_amt;
   end loop;
 
+  v_amount := v_total_mrp - v_total_disc;
+
+  -- Coupon discount on the bill after category discounts. Row lock keeps each code single use.
+  if v_coupon_code is not null then
+    select * into v_coupon from public.coupons where code = v_coupon_code for update;
+    if not found or v_coupon.status <> 'ACTIVE' then
+      raise exception 'Coupon % is not valid or already used', v_coupon_code;
+    end if;
+    if v_coupon.phone is not null and v_coupon.phone is distinct from v_phone then
+      raise exception 'Coupon % belongs to another mobile number', v_coupon_code;
+    end if;
+    v_coupon_disc := round(v_amount * v_coupon.discount_pct / 100, 2);
+  end if;
+  v_payable := round(v_amount - v_coupon_disc);
+
   if v_status = 'PAID' then
     -- Financial year Apr-Mar, e.g. Oct 2026 -> period "102627"
     v_fy := extract(year from v_now)::integer - case when extract(month from v_now) < 4 then 1 else 0 end;
@@ -507,6 +636,19 @@ begin
     insert into public.stock_movements (location_id, item_id, qty, reason, ref_id)
     select v_location, item_id, -qty, 'SALE', v_sale_id
     from public.sale_items where sale_id = v_sale_id;
+
+    if v_coupon_code is not null then
+      update public.coupons
+      set status = 'REDEEMED', redeemed_sale_id = v_sale_id, redeemed_at = now()
+      where id = v_coupon.id;
+    end if;
+
+    -- Coupon for the next order, sent on WhatsApp with the bill
+    if v_phone is not null then
+      insert into public.coupons (code, phone, issued_sale_id)
+      values (public.new_coupon_code(), v_phone, v_sale_id)
+      returning code into v_new_coupon;
+    end if;
   end if;
 
   update public.sales set
@@ -518,8 +660,10 @@ begin
     total_qty = v_total_qty,
     total_mrp = v_total_mrp,
     total_discount = v_total_disc,
-    total_amount = v_total_mrp - v_total_disc,
-    payable = round(v_total_mrp - v_total_disc),
+    total_amount = v_amount - v_coupon_disc,
+    payable = v_payable,
+    coupon_code = v_coupon_code,
+    coupon_discount = v_coupon_disc,
     invoice_no = v_invoice,
     paid_at = case when v_status = 'PAID' then now() end,
     created_by = auth.uid()
@@ -529,8 +673,9 @@ begin
   return jsonb_build_object(
     'id', v_sale_id,
     'invoice_no', v_invoice,
-    'payable', round(v_total_mrp - v_total_disc),
-    'token', v_token
+    'payable', v_payable,
+    'token', v_token,
+    'coupon', v_new_coupon
   );
 end;
 $$;
@@ -557,6 +702,12 @@ begin
   select s.location_id, si.item_id, si.qty, 'SALE_CANCEL', s.id
   from public.sales s join public.sale_items si on si.sale_id = s.id
   where s.id = p_sale_id;
+
+  -- Give back the coupon this bill used, and void the one it handed out
+  update public.coupons set status = 'ACTIVE', redeemed_sale_id = null, redeemed_at = null
+  where redeemed_sale_id = p_sale_id and status = 'REDEEMED';
+  update public.coupons set status = 'VOID'
+  where issued_sale_id = p_sale_id and status = 'ACTIVE';
 end;
 $$;
 
@@ -626,6 +777,12 @@ as $$
     'total_mrp', s.total_mrp,
     'total_discount', s.total_discount,
     'payable', s.payable,
+    'coupon_code', s.coupon_code,
+    'coupon_discount', s.coupon_discount,
+    'next_coupon', (
+      select jsonb_build_object('code', c.code, 'discount_pct', c.discount_pct)
+      from public.coupons c where c.issued_sale_id = s.id and c.status = 'ACTIVE'
+    ),
     'location_name', l.name,
     'location_address', l.address,
     'items', coalesce((
@@ -686,6 +843,9 @@ grant execute on function public.create_stock_receipt(jsonb) to authenticated;
 grant execute on function public.list_staff() to authenticated;
 grant execute on function public.set_staff(uuid, text, uuid) to authenticated;
 grant execute on function public.get_public_bill(uuid) to anon, authenticated;
+revoke execute on function public.check_coupon(text, text) from public, anon;
+grant execute on function public.check_coupon(text, text) to authenticated;
+revoke execute on function public.new_coupon_code() from public, anon, authenticated;
 
 -- ============================================
 -- 9) ROW LEVEL SECURITY
@@ -702,6 +862,7 @@ alter table public.stock_receipt_items enable row level security;
 alter table public.pos_customers enable row level security;
 alter table public.sales enable row level security;
 alter table public.sale_items enable row level security;
+alter table public.coupons enable row level security;
 alter table public.invoice_counters enable row level security;
 
 -- Masters: staff read, admin write
@@ -740,6 +901,7 @@ create policy "Staff view own location sales" on public.sales for select
 create policy "Staff delete held bills" on public.sales for delete
   using (status = 'HELD' and public.can_use_location(location_id));
 
+create policy "Staff can view coupons" on public.coupons for select using (public.is_staff());
 create policy "Staff view own location sale items" on public.sale_items for select
   using (exists (
     select 1 from public.sales s

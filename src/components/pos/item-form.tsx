@@ -41,6 +41,11 @@ export function ItemForm({
 
   async function fillFromIsbn() {
     if (!form.isbn) return;
+    // A typo (missing digit) is the usual reason a lookup finds nothing
+    const digits = form.isbn.replace(/[^0-9Xx]/g, "").length;
+    if (digits !== 10 && digits !== 13) {
+      return setError(`This ISBN has ${digits} digits. A book ISBN has 13, so check the number on the barcode.`);
+    }
     setLooking(true);
     const info = await lookupIsbn(form.isbn);
     setLooking(false);

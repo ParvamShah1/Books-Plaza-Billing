@@ -13,6 +13,7 @@ export type HeldBill = {
   payable: number;
   total_qty: number;
   created_at: string;
+  coupon_code: string | null;
 };
 
 const primaryButton =

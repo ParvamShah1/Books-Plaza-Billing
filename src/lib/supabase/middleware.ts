@@ -48,7 +48,7 @@ export async function updateSession(request: NextRequest) {
       request.nextUrl.pathname.startsWith("/auth/login") ||
       request.nextUrl.pathname.startsWith("/auth/signup");
 
-    // Bill links sent by SMS are public
+    // Bill links sent on WhatsApp are public
     const isPublicPage = request.nextUrl.pathname.startsWith("/b/");
 
     if (!user && !isAuthPage && !isPublicPage && request.nextUrl.pathname !== "/") {

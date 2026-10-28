@@ -14,6 +14,8 @@ export default async function ReceiptPage({
   const { print } = await searchParams;
   const sale = await getSale(id);
   if (!sale || sale.status === "HELD") notFound();
+  // One-to-one embed can come back as an object or a one-item array
+  const issued = Array.isArray(sale.next_coupon) ? sale.next_coupon[0] : sale.next_coupon;
 
   return (
     <div className="bg-white min-h-screen">
@@ -32,6 +34,9 @@ export default async function ReceiptPage({
             total_mrp: sale.total_mrp,
             total_discount: sale.total_discount,
             payable: sale.payable,
+            coupon_code: sale.coupon_code,
+            coupon_discount: sale.coupon_discount,
+            next_coupon: issued?.status === "ACTIVE" ? issued : null,
             location_name: sale.location?.name ?? "",
             location_address: sale.location?.address ?? "",
             items: sale.items ?? [],
