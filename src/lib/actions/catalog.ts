@@ -396,6 +396,26 @@ export async function billUnknownCode(code: string, categoryId: string, location
   return { item: data[0] as PosItem, isNewBook: !!isbn };
 }
 
+// Every piece category's general item at this exhibition, made where missing, so the billing
+// screen can load them once and add them on a tap without waiting
+export async function getCategoryOtherBooks(locationId: string): Promise<PosItem[]> {
+  const supabase = await createClient();
+  const { data: categories } = await supabase.from("categories").select("id").eq("sell_by", "PIECE");
+  const ids = (categories || []).map((c) => c.id as string);
+
+  const load = async () => {
+    const { data } = await supabase.rpc("pos_items", { p_location: locationId, p_limit: 200, p_kind: "LOT" });
+    return ((data as PosItem[]) || []).filter((i) => i.name.endsWith(OTHER_BOOKS_SUFFIX));
+  };
+  let items = await load();
+  const missing = ids.filter((id) => !items.some((i) => i.category_id === id));
+  if (missing.length) {
+    await Promise.all(missing.map((id) => categoryOtherBooks(id)));
+    items = await load();
+  }
+  return items;
+}
+
 // "Other book" box for the category chosen on the billing screen
 export async function addCategoryOtherBook(categoryId: string, locationId: string) {
   const general = await categoryOtherBooks(categoryId);

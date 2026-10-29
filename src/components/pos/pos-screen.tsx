@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { checkCoupon, searchCustomerPhones, sendBillWhatsApp } from "@/lib/actions/sales";
 import { sendPurchaseToMeta } from "@/lib/actions/meta";
-import { addCategoryOtherBook, billUnknownCode, setNewBookPrices } from "@/lib/actions/catalog";
+import { addCategoryOtherBook, billUnknownCode, getCategoryOtherBooks, setNewBookPrices } from "@/lib/actions/catalog";
 import { NO_PHONE, OTHER_BOOKS_SUFFIX, billName, billTotals, formatQty, formatRupees, isValidMobile, lineAmounts } from "@/lib/pos/billing";
 import type { Category, CurrentStaff, Location, PaymentMode, PosItem, SellBy } from "@/lib/pos/types";
 import { beep, toast } from "@/components/ui/toast";
@@ -173,12 +173,29 @@ export function PosScreen({
     ? []
     : categories.filter((c) => c.sell_by === "PIECE" && (!categoryId || c.id === categoryId));
 
+  // Loaded once per exhibition so a tap adds the line straight away
+  const [otherBooks, setOtherBooks] = useState<Map<string, PosItem>>(new Map());
+  useEffect(() => {
+    if (!locationId) return;
+    let cancelled = false;
+    getCategoryOtherBooks(locationId).then((items) => {
+      if (!cancelled) setOtherBooks(new Map(items.map((i) => [i.category_id ?? "", i])));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [locationId]);
+
   async function addOtherBook(categoryIdToAdd: string) {
     if (!locationId) return;
+    const loaded = otherBooks.get(categoryIdToAdd);
+    if (loaded) return addItem(loaded);
+    // Category added after the screen opened: fetch it this once
     setAddingOther(categoryIdToAdd);
     const result = await addCategoryOtherBook(categoryIdToAdd, locationId);
     setAddingOther(null);
     if ("error" in result) return toast.error(result.error ?? "Could not add the book");
+    setOtherBooks((m) => new Map(m).set(categoryIdToAdd, result.item));
     addItem(result.item);
   }
 
