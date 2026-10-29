@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
@@ -11,7 +11,13 @@ export const metadata: Metadata = {
   description: "Billing system for bookstores",
   icons: {
     icon: "/booksplaza-logo.png",
+    apple: "/apple-touch-icon.png",
   },
+  appleWebApp: { capable: true, title: "Books Plaza", statusBarStyle: "default" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f97316",
 };
 
 export default function RootLayout({

@@ -1112,3 +1112,81 @@ create policy "Remove expenses" on public.expenses for delete
 -- ============================================
 -- update public.profiles set role = 'ADMIN'
 -- where id = (select id from auth.users where email = 'you@example.com');
+-- Owner's overview for the phone app: sales and expenses per exhibition, the previous period of the
+-- same length for comparison, and sales by day and by hour. Books by the piece and by the kg are
+-- counted apart, since adding them up makes no sense. Runs as the caller, so RLS applies.
+create or replace function public.owner_overview(p_from date, p_to date, p_location uuid default null)
+returns jsonb
+language sql
+stable
+set search_path = public
+as $$
+  with b as (
+    select (p_from::timestamp at time zone 'Asia/Kolkata') as s,
+           ((p_to + 1)::timestamp at time zone 'Asia/Kolkata') as e,
+           ((p_from - (p_to - p_from + 1))::timestamp at time zone 'Asia/Kolkata') as ps
+  ),
+  paid as (
+    select x.id, x.location_id, x.payable, x.payment_mode, x.total_qty, x.paid_at, x.paid_at >= b.s as cur
+    from public.sales x cross join b
+    where x.status = 'PAID' and x.paid_at >= b.ps and x.paid_at < b.e
+      and (p_location is null or x.location_id = p_location)
+  ),
+  s as (
+    select location_id, count(*) as bills, sum(payable) as total,
+           coalesce(sum(payable) filter (where payment_mode = 'CASH'), 0) as cash,
+           coalesce(sum(payable) filter (where payment_mode = 'UPI'), 0) as upi,
+           coalesce(sum(payable) filter (where payment_mode = 'CARD'), 0) as card,
+           coalesce(sum(total_qty), 0) as qty
+    from paid where cur group by location_id
+  ),
+  units as (
+    select p.location_id,
+           coalesce(sum(si.qty) filter (where c.sell_by is distinct from 'KG'), 0) as pieces,
+           coalesce(sum(si.qty) filter (where c.sell_by = 'KG'), 0) as kg
+    from paid p
+    join public.sale_items si on si.sale_id = p.id
+    left join public.items i on i.id = si.item_id
+    left join public.categories c on c.id = i.category_id
+    where p.cur
+    group by p.location_id
+  ),
+  ex as (
+    select location_id, sum(amount) as expenses,
+           coalesce(sum(amount) filter (where paid_by = 'CASH'), 0) as cash_expenses
+    from public.expenses
+    where spent_on between p_from and p_to and (p_location is null or location_id = p_location)
+    group by location_id
+  )
+  select jsonb_build_object(
+    'prev_total', (select coalesce(sum(payable), 0) from paid where not cur),
+    'prev_bills', (select count(*) from paid where not cur),
+    'locations', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', l.id, 'name', l.name, 'code', l.code,
+               'bills', coalesce(s.bills, 0), 'total', coalesce(s.total, 0),
+               'cash', coalesce(s.cash, 0), 'upi', coalesce(s.upi, 0), 'card', coalesce(s.card, 0),
+               'qty', coalesce(s.qty, 0), 'pieces', coalesce(units.pieces, 0), 'kg', coalesce(units.kg, 0),
+               'expenses', coalesce(ex.expenses, 0), 'cash_expenses', coalesce(ex.cash_expenses, 0))
+             order by coalesce(s.total, 0) desc, l.name)
+      from public.locations l
+      left join s on s.location_id = l.id
+      left join units on units.location_id = l.id
+      left join ex on ex.location_id = l.id
+      where s.location_id is not null or ex.location_id is not null
+    ), '[]'::jsonb),
+    'days', coalesce((
+      select jsonb_agg(jsonb_build_object('day', d, 'total', t, 'bills', n) order by d)
+      from (select (paid_at at time zone 'Asia/Kolkata')::date as d, sum(payable) as t, count(*) as n
+            from paid where cur group by 1) q
+    ), '[]'::jsonb),
+    'hours', coalesce((
+      select jsonb_agg(jsonb_build_object('hour', h, 'total', t, 'bills', n) order by h)
+      from (select extract(hour from paid_at at time zone 'Asia/Kolkata')::int as h, sum(payable) as t, count(*) as n
+            from paid where cur group by 1) q
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke execute on function public.owner_overview(date, date, uuid) from public, anon;
+grant execute on function public.owner_overview(date, date, uuid) to authenticated;
