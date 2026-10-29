@@ -8,7 +8,8 @@ import { StatCard } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { UrlFilters } from "@/components/pos/url-filters";
-import { DeleteExpenseButton, ExpenseForm, ExpensesExcelButton, expenseLabel } from "@/components/pos/expenses";
+import { DeleteExpenseButton, ExpenseForm, ExpensesExcelButton } from "@/components/pos/expenses";
+import { expenseLabel } from "@/lib/pos/validations";
 import { formatRupees } from "@/lib/pos/billing";
 import { Banknote, IndianRupee, Wallet, Receipt } from "lucide-react";
 
