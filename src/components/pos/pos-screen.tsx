@@ -166,14 +166,18 @@ export function PosScreen({
   }, [fetchHeldBills]);
 
   // ---------- Catalog ----------
-  const openCategory = categories.find((c) => c.id === categoryId);
-  const [addingOther, setAddingOther] = useState(false);
+  const [addingOther, setAddingOther] = useState<string | null>(null);
+  // "Other book" tiles: one per category sold by piece, for books with no data. On the start
+  // screen every category gets one; inside a category only that one.
+  const otherBookCategories = catalogQuery.trim()
+    ? []
+    : categories.filter((c) => c.sell_by === "PIECE" && (!categoryId || c.id === categoryId));
 
-  async function addOtherBook() {
-    if (!openCategory || !locationId) return;
-    setAddingOther(true);
-    const result = await addCategoryOtherBook(openCategory.id, locationId);
-    setAddingOther(false);
+  async function addOtherBook(categoryIdToAdd: string) {
+    if (!locationId) return;
+    setAddingOther(categoryIdToAdd);
+    const result = await addCategoryOtherBook(categoryIdToAdd, locationId);
+    setAddingOther(null);
     if ("error" in result) return toast.error(result.error ?? "Could not add the book");
     addItem(result.item);
   }
@@ -1057,28 +1061,27 @@ export function PosScreen({
             <div className="flex justify-center py-10">
               <Loader2 className="w-5 h-5 animate-spin text-neutral-400" />
             </div>
-          ) : catalog.length === 0 && !(openCategory?.sell_by === "PIECE") ? (
+          ) : catalog.length === 0 && otherBookCategories.length === 0 ? (
             <p className="text-sm text-neutral-400 text-center py-10">
               No items here. Scan publisher books with the barcode reader.
             </p>
           ) : (
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
-              {openCategory?.sell_by === "PIECE" && !catalogQuery.trim() && (
+              {otherBookCategories.map((c) => (
                 <button
+                  key={c.id}
                   type="button"
-                  onClick={addOtherBook}
-                  disabled={addingOther}
+                  onClick={() => addOtherBook(c.id)}
+                  disabled={!!addingOther}
                   className="text-left rounded-xl bg-orange-50/60 border border-dashed border-orange-300 p-3 min-h-20 flex flex-col justify-between hover:bg-orange-50 active:scale-[0.98] transition-all disabled:opacity-60"
                 >
-                  <span className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2">
-                    Other {openCategory.name} book
-                  </span>
+                  <span className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2">{c.name}</span>
                   <span className="flex items-center gap-1 mt-2 text-sm font-bold text-orange-600">
-                    {addingOther && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {addingOther === c.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     Type price
                   </span>
                 </button>
-              )}
+              ))}
               {catalog.map((item) => (
                 <button
                   key={item.item_id}
