@@ -80,7 +80,12 @@ export default async function SalesPage({
         <StatCard title="Total sales" value={formatRupees(Number(summary.total))} icon={IndianRupee} subtitle={`${formatQty(Number(summary.qty))} books`} />
         <StatCard title="Bills" value={String(summary.bills)} icon={Receipt} />
         <StatCard title="Cash" value={formatRupees(Number(summary.cash))} icon={Banknote} />
-        <StatCard title="UPI" value={formatRupees(Number(summary.upi))} icon={Smartphone} />
+        <StatCard
+          title="UPI"
+          value={formatRupees(Number(summary.upi))}
+          icon={Smartphone}
+          subtitle={Number(summary.card) > 0 ? `Card ${formatRupees(Number(summary.card))}` : undefined}
+        />
       </div>
 
       <div className="flex gap-1 p-1 glass-card rounded-xl w-fit mb-4">
