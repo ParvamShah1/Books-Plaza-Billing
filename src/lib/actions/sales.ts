@@ -105,6 +105,73 @@ export async function getCategorySales(filters: { from: string; to: string; loca
   }));
 }
 
+export type OverviewLocation = {
+  id: string;
+  name: string;
+  code: string;
+  bills: number;
+  total: number;
+  cash: number;
+  upi: number;
+  card: number;
+  qty: number;
+  pieces: number;
+  kg: number;
+  expenses: number;
+  cash_expenses: number;
+};
+
+export type Overview = {
+  prev_total: number;
+  prev_bills: number;
+  locations: OverviewLocation[];
+  days: { day: string; total: number; bills: number }[];
+  hours: { hour: number; total: number; bills: number }[];
+};
+
+export type RecentBill = {
+  id: string;
+  invoice_no: string;
+  payable: number;
+  payment_mode: string;
+  paid_at: string;
+  location: { code: string } | null;
+};
+
+// Everything the phone overview shows, in one round of parallel queries
+export async function getOwnerOverview(filters: { from: string; to: string; location_id?: string }) {
+  const supabase = await createClient();
+  const { start, end } = istDayRange(filters.from, filters.to);
+  const args = filters.location_id
+    ? { p_from: filters.from, p_to: filters.to, p_location: filters.location_id }
+    : { p_from: filters.from, p_to: filters.to };
+
+  let recent = supabase
+    .from("sales")
+    .select("id, invoice_no, payable, payment_mode, paid_at, location:locations!left(code)")
+    .eq("status", "PAID")
+    .gte("paid_at", start)
+    .lt("paid_at", end)
+    .order("paid_at", { ascending: false })
+    .limit(8);
+  if (filters.location_id) recent = recent.eq("location_id", filters.location_id);
+
+  const [overview, categories, bills] = await Promise.all([
+    supabase.rpc("owner_overview", args, { get: true }),
+    getCategorySales(filters),
+    recent,
+  ]);
+  if (overview.error) throw new Error(overview.error.message);
+  if (bills.error) throw new Error(bills.error.message);
+
+  // jsonb numbers arrive as numbers already
+  return {
+    overview: overview.data as Overview,
+    categories: categories.sort((a, b) => b.amount - a.amount),
+    recent: (bills.data as unknown as RecentBill[]).map((b) => ({ ...b, payable: Number(b.payable) })),
+  };
+}
+
 export async function getSale(id: string): Promise<Sale | null> {
   const supabase = await createClient();
   const { data, error } = await supabase

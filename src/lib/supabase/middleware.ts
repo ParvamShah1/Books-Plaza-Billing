@@ -54,13 +54,18 @@ export async function updateSession(request: NextRequest) {
     if (!user && !isAuthPage && !isPublicPage && request.nextUrl.pathname !== "/") {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
+      url.search = "";
+      // Come back to the same page after logging in (e.g. the phone app's /m)
+      url.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
       return NextResponse.redirect(url);
     }
 
     // Redirect authenticated users away from auth pages
     if (user && isAuthPage) {
       const url = request.nextUrl.clone();
-      url.pathname = "/pos";
+      const next = request.nextUrl.searchParams.get("next");
+      url.pathname = next && /^\/(?![/\\])/.test(next) ? next.split("?")[0] : "/pos";
+      url.search = "";
       return NextResponse.redirect(url);
     }
 

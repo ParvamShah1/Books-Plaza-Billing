@@ -13,6 +13,7 @@ export default function LoginPage() {
   async function handleSubmit(formData: FormData) {
     setLoading(true);
     setError("");
+    formData.set("next", new URLSearchParams(window.location.search).get("next") ?? "");
     const result = await login(formData);
     if (result?.error) {
       setError(result.error);

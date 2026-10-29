@@ -22,7 +22,9 @@ export async function login(formData: FormData) {
     return { error: error.message };
   }
 
-  redirect("/invoices");
+  // Only a path on this site, never another site's address
+  const next = formData.get("next");
+  redirect(typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/invoices");
 }
 
 export async function signup(formData: FormData) {
