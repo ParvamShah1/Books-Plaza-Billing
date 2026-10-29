@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { Loader2, Trash2, FolderOpen } from "lucide-react";
 import { formatQty, formatRupees } from "@/lib/pos/billing";
-import type { PaymentMode, PosItem } from "@/lib/pos/types";
+import { toIsbn13 } from "@/lib/pos/isbn";
+import type { Category, PaymentMode, PosItem } from "@/lib/pos/types";
 
 export type HeldBill = {
   id: string;
@@ -170,6 +171,49 @@ export function PickerDialog({ items, onPick }: { items: PosItem[]; onPick: (ite
           <span className="text-base font-bold text-neutral-900">{formatRupees(Number(item.price))}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+// Scanned barcode not in the book list: bill it under its publisher's category
+export function UnknownCodeDialog({
+  code,
+  categories,
+  onPick,
+}: {
+  code: string;
+  categories: Category[];
+  onPick: (categoryId: string) => Promise<unknown>;
+}) {
+  const [saving, setSaving] = useState<string | null>(null);
+  const isbn = toIsbn13(code);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-neutral-600">
+        <span className="font-semibold tracking-wide">{code}</span>{" "}
+        {isbn
+          ? "is a new book. Choose its publisher: it is saved as a new book and you type the price on the bill."
+          : "doesn't look like a full ISBN (the scanner may have missed a digit). Scan again, or choose the publisher to bill it as one of their other books."}
+      </p>
+      <div className="grid grid-cols-2 gap-2 max-h-80 overflow-y-auto">
+        {categories.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            disabled={!!saving}
+            onClick={async () => {
+              setSaving(c.id);
+              await onPick(c.id);
+              setSaving(null);
+            }}
+            className="flex items-center justify-between gap-2 p-3 rounded-xl border border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-50/50 text-left text-sm font-medium text-neutral-900 disabled:opacity-60 transition-colors"
+          >
+            {c.name}
+            {saving === c.id && <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

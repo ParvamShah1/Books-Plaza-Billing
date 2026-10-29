@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Printer, Ban, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Printer, Ban, Loader2, Pencil } from "lucide-react";
 import { cancelSale } from "@/lib/actions/sales";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -39,6 +40,15 @@ export function SaleRowActions({ sale, canCancel }: { sale: Sale; canCancel: boo
       >
         <Printer className="w-4 h-4" />
       </a>
+      {canCancel && sale.status === "PAID" && (
+        <Link
+          href={`/pos?edit=${sale.id}`}
+          title="Edit bill"
+          className="p-2 rounded-lg text-neutral-400 hover:text-orange-600 hover:bg-orange-50"
+        >
+          <Pencil className="w-4 h-4" />
+        </Link>
+      )}
       {canCancel && sale.status === "PAID" && (
         <button
           type="button"

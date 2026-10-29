@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { categorySchema, itemSchema, locationSchema } from "@/lib/pos/validations";
 import { itemIdsForBarcode } from "@/lib/pos/search";
-import type { Category, CategoryDiscount, Item, ItemKind, Location } from "@/lib/pos/types";
+import { toIsbn13 } from "@/lib/pos/isbn";
+import { OTHER_BOOKS_SUFFIX } from "@/lib/pos/billing";
+import type { Category, CategoryDiscount, Item, ItemKind, Location, PosItem } from "@/lib/pos/types";
 
 // ---------- Locations ----------
 
@@ -355,4 +357,87 @@ export async function importSheetBooks(rows: SheetRow[], categoryId: string) {
     created: created.length,
     priced,
   };
+}
+
+// A barcode that isn't in the book list, billed under its publisher's category. A good ISBN becomes
+// a new book (title looked up online, price typed on the bill); a misread barcode goes on the
+// category's "(other books)" line.
+export async function billUnknownCode(code: string, categoryId: string, locationId: string) {
+  const supabase = await createClient();
+  const isbn = toIsbn13(code);
+  let itemCode: string;
+
+  if (isbn) {
+    const info = await lookupIsbn(isbn);
+    const { data, error } = await supabase
+      .from("items")
+      .insert({
+        kind: "PUBLISHER",
+        name: info?.title || `ISBN ${isbn}`,
+        isbn,
+        author: info?.author || null,
+        publisher: info?.publisher || null,
+        category_id: categoryId,
+        price: 0,
+      })
+      .select("code")
+      .single();
+    if (error) return { error: error.message };
+    itemCode = data.code;
+  } else {
+    const general = await categoryOtherBooks(categoryId);
+    if ("error" in general) return { error: general.error };
+    itemCode = general.code;
+  }
+
+  const { data, error } = await supabase.rpc("lookup_code", { p_code: itemCode, p_location: locationId });
+  if (error || !data?.length) return { error: error?.message ?? "Could not add the book" };
+  revalidatePath("/items");
+  return { item: data[0] as PosItem, isNewBook: !!isbn };
+}
+
+// "Other book" box for the category chosen on the billing screen
+export async function addCategoryOtherBook(categoryId: string, locationId: string) {
+  const general = await categoryOtherBooks(categoryId);
+  if ("error" in general) return { error: general.error };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("lookup_code", { p_code: general.code, p_location: locationId });
+  if (error || !data?.length) return { error: error?.message ?? "Could not add the book" };
+  return { item: data[0] as PosItem };
+}
+
+// One "<Category> (other books)" item per category, for books with no data, priced on the bill
+async function categoryOtherBooks(categoryId: string): Promise<{ code: string } | { error: string }> {
+  const supabase = await createClient();
+  const { data: category } = await supabase.from("categories").select("name").eq("id", categoryId).single();
+  if (!category) return { error: "Category not found" };
+  const name = category.name + OTHER_BOOKS_SUFFIX;
+
+  const { data: existing } = await supabase
+    .from("items")
+    .select("code")
+    .eq("category_id", categoryId)
+    .eq("kind", "LOT")
+    .eq("name", name)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from("items")
+    .insert({ kind: "LOT", name, category_id: categoryId, price: 0 })
+    .select("code")
+    .single();
+  return error ? { error: error.message } : data;
+}
+
+// Books added while billing start at ₹0: keep the price the cashier typed for next time
+export async function setNewBookPrices(rows: { item_id: string; price: number }[]) {
+  const supabase = await createClient();
+  await Promise.all(
+    rows
+      .filter((r) => r.price > 0)
+      .map((r) => supabase.from("items").update({ price: r.price }).eq("id", r.item_id).eq("price", 0))
+  );
 }

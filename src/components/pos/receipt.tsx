@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { BUSINESS } from "@/lib/pos/business";
-import { formatQty } from "@/lib/pos/billing";
+import { billName, formatQty } from "@/lib/pos/billing";
 
 export type ReceiptData = {
   invoice_no: string | null;
@@ -10,9 +10,7 @@ export type ReceiptData = {
   total_mrp: number;
   total_discount: number;
   payable: number;
-  coupon_code?: string | null;
   coupon_discount?: number;
-  next_coupon?: { code: string; discount_pct: number } | null;
   location_name: string;
   location_address: string;
   items: { name: string; qty: number; price: number; discount_amt: number; amount: number }[];
@@ -78,7 +76,7 @@ export function Receipt({ data, cancelled = false }: { data: ReceiptData; cancel
           {data.items.map((item, i) => (
             <tr key={i} className="align-top">
               <td className="py-1 pr-1 break-words">
-                {item.name}
+                {billName(item.name)}
                 {Number(item.discount_amt) > 0 && (
                   <div className="text-[10px]">Disc -{compact(item.discount_amt)}</div>
                 )}
@@ -95,11 +93,8 @@ export function Receipt({ data, cancelled = false }: { data: ReceiptData; cancel
       <div className="text-xs space-y-0.5">
         <div className="flex justify-between"><span>Total qty</span><span>{formatQty(Number(data.total_qty))}</span></div>
         <div className="flex justify-between"><span>MRP total</span><span>{money(data.total_mrp)}</span></div>
-        {Number(data.total_discount) > 0 && (
-          <div className="flex justify-between"><span>Discount</span><span>-{money(data.total_discount)}</span></div>
-        )}
-        {couponDiscount > 0 && (
-          <div className="flex justify-between"><span>Coupon {data.coupon_code}</span><span>-{money(couponDiscount)}</span></div>
+        {savings > 0 && (
+          <div className="flex justify-between"><span>Discount</span><span>-{money(savings)}</span></div>
         )}
       </div>
       <div className="flex justify-between font-bold text-base border-t border-black mt-1 pt-1">
@@ -108,17 +103,6 @@ export function Receipt({ data, cancelled = false }: { data: ReceiptData; cancel
       </div>
       {savings > 0 && (
         <p className="text-center text-xs font-semibold mt-1">You saved ₹{money(savings)}</p>
-      )}
-
-      {data.next_coupon && !cancelled && (
-        <div className="border border-black border-dashed rounded mt-3 p-2 text-center">
-          <p className="text-xs font-semibold">Your gift for the next visit</p>
-          <p className="text-lg font-bold tracking-widest">{data.next_coupon.code}</p>
-          <p className="text-[11px]">
-            {Number(data.next_coupon.discount_pct)}% off your next bill at any Books Plaza exhibition. Valid once,
-            only for the mobile number on this bill.
-          </p>
-        </div>
       )}
 
       <div className="border-t border-dashed border-black my-2" />

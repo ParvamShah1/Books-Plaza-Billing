@@ -10,6 +10,17 @@ const DUMMY_NUMBERS = new Set([
   "6666666666",
 ]);
 
+// Typed when the customer won't give a number. Bills still save, but no WhatsApp bill or coupon.
+export const NO_PHONE = "0000000000";
+
+// Name ending of each category's general item, for books with no data (priced on the bill)
+export const OTHER_BOOKS_SUFFIX = " (other books)";
+
+// On bills a general item shows as just the category, e.g. "Golden Mind"
+export function billName(name: string): string {
+  return name.endsWith(OTHER_BOOKS_SUFFIX) ? name.slice(0, -OTHER_BOOKS_SUFFIX.length) : name;
+}
+
 // Real Indian mobile: 10 digits, starts 6-9, not a common fake number
 export function isValidMobile(phone: string): boolean {
   if (!/^[6-9]\d{9}$/.test(phone)) return false;

@@ -127,7 +127,7 @@ create table public.stock_movements (
   location_id uuid not null references public.locations on delete cascade,
   item_id uuid not null references public.items on delete cascade,
   qty numeric(12,3) not null,
-  reason text not null check (reason in ('RECEIPT', 'SALE', 'SALE_CANCEL', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT')),
+  reason text not null check (reason in ('RECEIPT', 'SALE', 'SALE_CANCEL', 'SALE_EDIT', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT')),
   ref_id uuid,
   created_by uuid default auth.uid(),
   created_at timestamptz not null default now()
@@ -214,7 +214,9 @@ create table public.sales (
   cancelled_at timestamptz,
   cancel_reason text,
   coupon_code text, -- coupon redeemed on this bill
-  coupon_discount numeric(12,2) not null default 0
+  coupon_discount numeric(12,2) not null default 0,
+  edited_at timestamptz, -- last change by an admin after payment
+  edited_by uuid
 );
 
 create unique index idx_sales_invoice_no on public.sales (invoice_no);
@@ -351,11 +353,13 @@ as $$
 $$;
 
 -- Item tiles / name search on the billing screen
+-- Billing screen boxes (p_kind = 'LOT': bookmarks, books by kg...) and name search
 create or replace function public.pos_items(
   p_location uuid,
   p_query text default null,
   p_category uuid default null,
-  p_limit integer default 60
+  p_limit integer default 60,
+  p_kind text default null
 )
 returns table (
   item_id uuid, kind text, code text, isbn text, name text, publisher text,
@@ -374,6 +378,7 @@ as $$
   left join public.stock s on s.item_id = i.id and s.location_id = p_location
   where i.is_active
     and (p_category is null or i.category_id = p_category)
+    and (p_kind is null or i.kind = p_kind)
     and (coalesce(trim(p_query), '') = '' or i.name ilike '%' || trim(p_query) || '%' or i.code = upper(trim(p_query)))
   order by (coalesce(s.qty, 0) > 0) desc, i.kind desc, i.name
   limit least(greatest(p_limit, 1), 200);
@@ -543,13 +548,17 @@ begin
   if jsonb_array_length(coalesce(p->'items', '[]'::jsonb)) = 0 then
     raise exception 'Add at least one book';
   end if;
+  -- Every paid bill needs a mobile; 0000000000 when the customer won't give one
+  if v_status = 'PAID' and v_phone is null then
+    raise exception 'Enter the customer mobile number (0000000000 if they won''t give one)';
+  end if;
 
   select * into v_loc from public.locations where id = v_location and is_active;
   if not found then
     raise exception 'Location not found or closed';
   end if;
 
-  if v_phone is not null then
+  if v_phone is not null and v_phone <> '0000000000' then
     if v_phone !~ '^[6-9][0-9]{9}$' then
       raise exception 'Invalid mobile number';
     end if;
@@ -643,8 +652,8 @@ begin
       where id = v_coupon.id;
     end if;
 
-    -- Coupon for the next order, sent on WhatsApp with the bill
-    if v_phone is not null then
+    -- Coupon for the next order, sent on WhatsApp with the bill (real numbers only)
+    if v_customer is not null then
       insert into public.coupons (code, phone, issued_sale_id)
       values (public.new_coupon_code(), v_phone, v_sale_id)
       returning code into v_new_coupon;
@@ -681,6 +690,135 @@ end;
 $$;
 
 -- Cancel a paid bill and put the books back in stock (admin only)
+-- Admin fixes a paid bill: books, qty, price, mobile, payment mode. Same bill number and time.
+-- Stock goes back for the old lines and out again for the new ones. Books already on the bill keep
+-- the discount they were sold at; a redeemed coupon stays and is worked out again on the new amount.
+create or replace function public.edit_sale(p jsonb)
+returns jsonb
+language plpgsql
+security definer set search_path = ''
+as $$
+declare
+  v_sale public.sales%rowtype;
+  v_sale_id uuid := (p->>'sale_id')::uuid;
+  v_mode text := nullif(p->>'payment_mode', '');
+  v_phone text := nullif(trim(p->>'phone'), '');
+  v_customer uuid;
+  v_line jsonb;
+  v_item record;
+  v_qty numeric;
+  v_price numeric;
+  v_gross numeric;
+  v_disc_amt numeric;
+  v_total_qty numeric := 0;
+  v_total_mrp numeric := 0;
+  v_total_disc numeric := 0;
+  v_sort integer := 0;
+  v_coupon_pct numeric := 0;
+  v_coupon_disc numeric := 0;
+  v_amount numeric;
+  v_payable numeric;
+  v_old_discounts jsonb;
+begin
+  if not public.is_admin() then
+    raise exception 'Only an admin can edit bills';
+  end if;
+  select * into v_sale from public.sales where id = v_sale_id and status = 'PAID' for update;
+  if not found then
+    raise exception 'Bill not found or not paid';
+  end if;
+  if v_mode is null or v_mode not in ('CASH', 'UPI', 'CARD') then
+    raise exception 'Choose a payment mode';
+  end if;
+  if jsonb_array_length(coalesce(p->'items', '[]'::jsonb)) = 0 then
+    raise exception 'A bill needs at least one book. Cancel the bill instead';
+  end if;
+  if v_phone is null then
+    raise exception 'Enter the customer mobile number (0000000000 if they won''t give one)';
+  end if;
+  if v_phone <> '0000000000' then
+    if v_phone !~ '^[6-9][0-9]{9}$' then
+      raise exception 'Invalid mobile number';
+    end if;
+    insert into public.pos_customers (phone) values (v_phone)
+    on conflict (phone) do update set phone = excluded.phone
+    returning id into v_customer;
+  end if;
+
+  -- Put the old lines back in stock
+  select coalesce(jsonb_object_agg(item_id, discount), '{}'::jsonb) into v_old_discounts
+  from public.sale_items where sale_id = v_sale_id;
+  insert into public.stock_movements (location_id, item_id, qty, reason, ref_id)
+  select v_sale.location_id, item_id, qty, 'SALE_EDIT', v_sale_id
+  from public.sale_items where sale_id = v_sale_id;
+  delete from public.sale_items where sale_id = v_sale_id;
+
+  for v_line in select * from jsonb_array_elements(p->'items') loop
+    v_qty := (v_line->>'qty')::numeric;
+    v_price := (v_line->>'price')::numeric;
+    if v_qty is null or v_qty <= 0 then
+      raise exception 'Quantity must be more than 0';
+    end if;
+    if v_price is null or v_price < 0 then
+      raise exception 'Invalid price';
+    end if;
+
+    select i.id, i.name, coalesce(c.sell_by, 'PIECE') as sell_by,
+           coalesce((v_old_discounts->>i.id::text)::numeric, cd.discount, 0) as discount
+    into v_item
+    from public.items i
+    left join public.categories c on c.id = i.category_id
+    left join public.category_discounts cd on cd.category_id = i.category_id and cd.location_id = v_sale.location_id
+    where i.id = (v_line->>'item_id')::uuid;
+    if not found then
+      raise exception 'Book not found';
+    end if;
+    if v_item.sell_by = 'PIECE' and v_qty <> trunc(v_qty) then
+      raise exception '% is sold per piece', v_item.name;
+    end if;
+
+    v_gross := round(v_qty * v_price, 2);
+    v_disc_amt := round(v_gross * v_item.discount / 100, 2);
+
+    insert into public.sale_items (sale_id, item_id, name, qty, price, discount, discount_amt, amount, sort_order)
+    values (v_sale_id, v_item.id, v_item.name, v_qty, v_price, v_item.discount, v_disc_amt, v_gross - v_disc_amt, v_sort);
+
+    v_sort := v_sort + 1;
+    v_total_qty := v_total_qty + v_qty;
+    v_total_mrp := v_total_mrp + v_gross;
+    v_total_disc := v_total_disc + v_disc_amt;
+  end loop;
+
+  -- Take the new lines out of stock
+  insert into public.stock_movements (location_id, item_id, qty, reason, ref_id)
+  select v_sale.location_id, item_id, -qty, 'SALE_EDIT', v_sale_id
+  from public.sale_items where sale_id = v_sale_id;
+
+  v_amount := v_total_mrp - v_total_disc;
+  if v_sale.coupon_code is not null then
+    select discount_pct into v_coupon_pct from public.coupons where code = v_sale.coupon_code;
+    v_coupon_disc := round(v_amount * coalesce(v_coupon_pct, 0) / 100, 2);
+  end if;
+  v_payable := round(v_amount - v_coupon_disc);
+
+  update public.sales set
+    customer_id = v_customer,
+    phone = v_phone,
+    payment_mode = v_mode,
+    total_qty = v_total_qty,
+    total_mrp = v_total_mrp,
+    total_discount = v_total_disc,
+    total_amount = v_amount - v_coupon_disc,
+    payable = v_payable,
+    coupon_discount = v_coupon_disc,
+    edited_at = now(),
+    edited_by = auth.uid()
+  where id = v_sale_id;
+
+  return jsonb_build_object('id', v_sale_id, 'invoice_no', v_sale.invoice_no, 'payable', v_payable);
+end;
+$$;
+
 create or replace function public.cancel_sale(p_sale_id uuid, p_reason text)
 returns void
 language plpgsql
@@ -834,11 +972,13 @@ $$;
 
 revoke execute on function public.save_sale(jsonb) from public, anon;
 revoke execute on function public.cancel_sale(uuid, text) from public, anon;
+revoke execute on function public.edit_sale(jsonb) from public, anon;
 revoke execute on function public.create_stock_receipt(jsonb) from public, anon;
 revoke execute on function public.list_staff() from public, anon;
 revoke execute on function public.set_staff(uuid, text, uuid) from public, anon;
 grant execute on function public.save_sale(jsonb) to authenticated;
 grant execute on function public.cancel_sale(uuid, text) to authenticated;
+grant execute on function public.edit_sale(jsonb) to authenticated;
 grant execute on function public.create_stock_receipt(jsonb) to authenticated;
 grant execute on function public.list_staff() to authenticated;
 grant execute on function public.set_staff(uuid, text, uuid) to authenticated;
@@ -911,7 +1051,64 @@ create policy "Staff view own location sale items" on public.sale_items for sele
 -- invoice_counters: no policies (only used inside save_sale)
 
 -- ============================================
--- 10) MAKE YOURSELF ADMIN (edit the email, then run)
+-- 10) EXPENSES (daily spending at each location)
+-- ============================================
+create table public.expenses (
+  id uuid not null default gen_random_uuid() primary key,
+  location_id uuid not null references public.locations on delete restrict,
+  spent_on date not null default (now() at time zone 'Asia/Kolkata')::date,
+  category text not null check (category in (
+    'TEA_FOOD', 'TRANSPORT', 'LABOUR', 'SALARY', 'RENT', 'ELECTRICITY',
+    'PRINTING', 'STATIONERY', 'REPAIRS', 'INFLUENCER', 'ADS', 'OTHER'
+  )),
+  amount numeric(10,2) not null check (amount > 0),
+  paid_by text not null default 'CASH' check (paid_by in ('CASH', 'UPI', 'CARD', 'BANK')),
+  note text not null default '',
+  created_by uuid references public.profiles on delete set null,
+  added_by text not null default '', -- name at the time, staff can't read other profiles
+  created_at timestamptz not null default now()
+);
+
+create index idx_expenses_location_day on public.expenses (location_id, spent_on);
+
+-- Who added it comes from the login, not from the form
+create or replace function public.stamp_expense()
+returns trigger
+language plpgsql
+security definer set search_path = ''
+as $$
+begin
+  new.created_by := auth.uid();
+  new.added_by := coalesce((select full_name from public.profiles where id = auth.uid()), '');
+  new.created_at := now();
+  return new;
+end;
+$$;
+
+create trigger expenses_stamp
+  before insert on public.expenses
+  for each row execute function public.stamp_expense();
+
+alter table public.expenses enable row level security;
+
+create policy "Staff view own location expenses" on public.expenses for select
+  using (public.can_use_location(location_id));
+-- Staff enter today's or yesterday's spending; admins any past day
+create policy "Staff add expenses" on public.expenses for insert
+  with check (
+    public.can_use_location(location_id)
+    and spent_on <= (now() at time zone 'Asia/Kolkata')::date
+    and (public.is_admin() or spent_on >= (now() at time zone 'Asia/Kolkata')::date - 1)
+  );
+-- Staff can remove their own entry for a day after adding it (to fix a mistake)
+create policy "Remove expenses" on public.expenses for delete
+  using (
+    public.is_admin()
+    or (created_by = auth.uid() and created_at > now() - interval '1 day' and public.can_use_location(location_id))
+  );
+
+-- ============================================
+-- 11) MAKE YOURSELF ADMIN (edit the email, then run)
 -- ============================================
 -- update public.profiles set role = 'ADMIN'
 -- where id = (select id from auth.users where email = 'you@example.com');

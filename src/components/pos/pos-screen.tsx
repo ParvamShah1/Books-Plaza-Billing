@@ -1,14 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { checkCoupon, searchCustomerPhones, sendBillWhatsApp } from "@/lib/actions/sales";
 import { sendPurchaseToMeta } from "@/lib/actions/meta";
-import { billTotals, formatQty, formatRupees, isValidMobile, lineAmounts } from "@/lib/pos/billing";
+import { addCategoryOtherBook, billUnknownCode, setNewBookPrices } from "@/lib/actions/catalog";
+import { NO_PHONE, OTHER_BOOKS_SUFFIX, billName, billTotals, formatQty, formatRupees, isValidMobile, lineAmounts } from "@/lib/pos/billing";
 import type { Category, CurrentStaff, Location, PaymentMode, PosItem, SellBy } from "@/lib/pos/types";
-import { toast } from "@/components/ui/toast";
+import { beep, toast } from "@/components/ui/toast";
 import { Modal } from "@/components/ui/modal";
-import { PayDialog, HoldDialog, PickerDialog, HeldBillsDialog, type HeldBill } from "@/components/pos/pos-dialogs";
+import {
+  PayDialog,
+  HoldDialog,
+  PickerDialog,
+  HeldBillsDialog,
+  UnknownCodeDialog,
+  type HeldBill,
+} from "@/components/pos/pos-dialogs";
 import {
   ScanBarcode,
   Minus,
@@ -39,6 +48,16 @@ type Line = {
 
 type LastBill = { id: string; invoice_no: string; payable: number };
 
+// A paid bill an admin is fixing (opened from the Sales page)
+export type EditSale = {
+  id: string;
+  invoice_no: string;
+  location_id: string;
+  phone: string | null;
+  coupon_code: string | null;
+  coupon_pct: number;
+};
+
 const looksLikeCode = (s: string) => /^[0-9Xx-]{6,}$/.test(s) || /^BP\d+$/i.test(s);
 const canNameSearch = (s: string) => s.length >= 3 && !looksLikeCode(s);
 const canSuggestPhone = (s: string) => s.length >= 4 && s.length < 10;
@@ -51,18 +70,21 @@ export function PosScreen({
   locations,
   categories,
   staff,
+  editSale,
 }: {
   locations: Location[];
   categories: Category[];
   staff: CurrentStaff;
+  editSale?: EditSale;
 }) {
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const isAdmin = staff.role === "ADMIN";
 
   const [locationId, setLocationId] = useState(
-    (!isAdmin && staff.location_id) || (locations.length === 1 ? locations[0].id : "")
+    editSale?.location_id || (!isAdmin && staff.location_id) || (locations.length === 1 ? locations[0].id : "")
   );
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(editSale?.phone ?? "");
   const [phoneSuggestions, setPhoneSuggestions] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [heldSaleId, setHeldSaleId] = useState<string | null>(null);
@@ -71,6 +93,7 @@ export function PosScreen({
   const [nameMatches, setNameMatches] = useState<PosItem[]>([]);
   const [activeMatch, setActiveMatch] = useState(0);
   const [picker, setPicker] = useState<PosItem[] | null>(null);
+  const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [payMode, setPayMode] = useState<PaymentMode | null>(null);
   const [holdOpen, setHoldOpen] = useState(false);
   const [heldOpen, setHeldOpen] = useState(false);
@@ -78,11 +101,14 @@ export function PosScreen({
   const [saving, setSaving] = useState(false);
   const [lastBill, setLastBill] = useState<LastBill | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const [coupon, setCoupon] = useState<{ code: string; pct: number; phone: string } | null>(null);
+  const [coupon, setCoupon] = useState<{ code: string; pct: number; phone: string } | null>(
+    editSale?.coupon_code ? { code: editSale.coupon_code, pct: editSale.coupon_pct, phone: editSale.phone ?? "" } : null
+  );
   const [couponInput, setCouponInput] = useState("");
   const [couponChecking, setCouponChecking] = useState(false);
 
-  // Catalog panel
+  // Catalog panel, as in the old billing screen: loose items (bookmarks, books by kg...) to start with;
+  // choosing a category or typing a filter shows every book that matches
   const [categoryId, setCategoryId] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalog, setCatalog] = useState<PosItem[]>([]);
@@ -93,6 +119,9 @@ export function PosScreen({
   const couponRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const qtyRefs = useRef(new Map<string, HTMLInputElement>());
+  const priceRefs = useRef(new Map<string, HTMLInputElement>());
+  // Books created from an unknown barcode during this bill; their typed price is saved after payment
+  const newBookIds = useRef(new Set<string>());
   const printFrame = useRef<HTMLIFrameElement | null>(null);
 
   const location = locations.find((l) => l.id === locationId);
@@ -104,10 +133,10 @@ export function PosScreen({
       ),
     [lines, coupon]
   );
-  const phoneValid = phone === "" || isValidMobile(phone);
+  const phoneValid = phone === "" || phone === NO_PHONE || isValidMobile(phone);
   const visibleMatches = canNameSearch(scan.trim()) ? nameMatches : [];
   const visiblePhones = canSuggestPhone(phone) ? phoneSuggestions : [];
-  const anyDialogOpen = !!picker || !!payMode || holdOpen || heldOpen;
+  const anyDialogOpen = !!picker || !!unknownCode || !!payMode || holdOpen || heldOpen;
 
   // ---------- Held bills ----------
   const fetchHeldBills = useCallback(async () => {
@@ -136,6 +165,18 @@ export function PosScreen({
   }, [fetchHeldBills]);
 
   // ---------- Catalog ----------
+  const openCategory = categories.find((c) => c.id === categoryId);
+  const [addingOther, setAddingOther] = useState(false);
+
+  async function addOtherBook() {
+    if (!openCategory || !locationId) return;
+    setAddingOther(true);
+    const result = await addCategoryOtherBook(openCategory.id, locationId);
+    setAddingOther(false);
+    if ("error" in result) return toast.error(result.error ?? "Could not add the book");
+    addItem(result.item);
+  }
+
   useEffect(() => {
     if (!locationId) return;
     let cancelled = false;
@@ -145,12 +186,14 @@ export function PosScreen({
         p_location: locationId,
         p_query: catalogQuery || null,
         p_category: categoryId || null,
-        p_limit: 60,
+        p_limit: 200,
+        p_kind: categoryId || catalogQuery.trim() ? null : "LOT",
       });
       if (cancelled) return;
       setCatalogLoading(false);
       if (error) toast.error(error.message);
-      else setCatalog(data as PosItem[]);
+      // The "Other book" box stands in for each category's general item
+      else setCatalog((data as PosItem[]).filter((i) => !(i.kind === "LOT" && i.name.endsWith(OTHER_BOOKS_SUFFIX))));
     }, 200);
     return () => {
       cancelled = true;
@@ -220,12 +263,16 @@ export function PosScreen({
     setFlashId(item.item_id);
     setTimeout(() => setFlashId((id) => (id === item.item_id ? null : id)), 700);
 
-    // Weight items: jump to the qty box so the cashier types the kg
+    // Weight items: jump to the qty box so the cashier types the kg; no price yet: to the price box
     setTimeout(() => {
       const qtyInput = qtyRefs.current.get(item.item_id);
+      const priceInput = priceRefs.current.get(item.item_id);
       if (item.sell_by === "KG" && qtyInput) {
         qtyInput.focus();
         qtyInput.select();
+      } else if (Number(item.price) <= 0 && priceInput) {
+        priceInput.focus();
+        priceInput.select();
       } else {
         qtyInput?.scrollIntoView({ block: "nearest" });
         scanRef.current?.focus();
@@ -303,7 +350,8 @@ export function PosScreen({
     if (error) {
       toast.error(error.message);
     } else if (!data || data.length === 0) {
-      toast.error(`No book found for "${code}"`);
+      beep();
+      setUnknownCode(code);
     } else if (data.length === 1) {
       addItem(data[0] as PosItem);
     } else {
@@ -328,7 +376,7 @@ export function PosScreen({
   }
 
   // ---------- Saving ----------
-  function validateBill(): boolean {
+  function validateBill(forPayment: boolean): boolean {
     if (!locationId) {
       toast.error("Select the exhibition first");
       return false;
@@ -337,9 +385,20 @@ export function PosScreen({
       toast.error("Add at least one book");
       return false;
     }
-    if (phone && !isValidMobile(phone)) {
-      toast.error("Enter a real 10-digit mobile number, or leave it empty");
+    if (forPayment && !phone) {
+      toast.error("Enter the customer mobile. If they won't give one, type 0000000000");
       phoneRef.current?.focus();
+      return false;
+    }
+    if (phone && !phoneValid) {
+      toast.error("Enter a real 10-digit mobile number, or 0000000000 if the customer won't give one");
+      phoneRef.current?.focus();
+      return false;
+    }
+    const unpriced = forPayment && lines.find((l) => num(l.price) <= 0);
+    if (unpriced) {
+      toast.error(`Type the price of "${unpriced.name}"`);
+      priceRefs.current.get(unpriced.item_id)?.focus();
       return false;
     }
     const bad = lines.find((l) => num(l.qty) <= 0 || (l.sell_by === "PIECE" && !Number.isInteger(num(l.qty))));
@@ -360,7 +419,34 @@ export function PosScreen({
     printFrame.current = frame;
   }
 
+  async function saveEditedBill(mode: PaymentMode) {
+    if (!editSale) return false;
+    setSaving(true);
+    const { error } = await supabase.rpc("edit_sale", {
+      p: {
+        sale_id: editSale.id,
+        phone: phone || null,
+        payment_mode: mode,
+        items: lines.map((l) => ({ item_id: l.item_id, qty: num(l.qty), price: num(l.price) })),
+      },
+    });
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return false;
+    }
+    const newPrices = lines
+      .filter((l) => newBookIds.current.has(l.item_id))
+      .map((l) => ({ item_id: l.item_id, price: num(l.price) }));
+    if (newPrices.length) setNewBookPrices(newPrices);
+    toast.success(`Bill ${editSale.invoice_no} updated`);
+    printReceipt(editSale.id);
+    router.push("/sales");
+    return true;
+  }
+
   async function saveBill(status: "HELD" | "PAID", mode?: PaymentMode, ref?: string) {
+    if (editSale && status === "PAID" && mode) return saveEditedBill(mode);
     setSaving(true);
     const { data, error } = await supabase.rpc("save_sale", {
       p: {
@@ -386,7 +472,12 @@ export function PosScreen({
     const result = data as { id: string; invoice_no: string | null; payable: number; coupon: string | null };
     if (status === "PAID") {
       printReceipt(result.id);
-      if (phone) {
+      const newPrices = lines
+        .filter((l) => newBookIds.current.has(l.item_id))
+        .map((l) => ({ item_id: l.item_id, price: num(l.price) }));
+      if (newPrices.length) setNewBookPrices(newPrices);
+      newBookIds.current.clear();
+      if (isValidMobile(phone)) {
         sendBillWhatsApp(result.id).then((r) => {
           if ("error" in r) toast.error(`Bill ${result.invoice_no}: ${r.error}`);
         });
@@ -394,9 +485,7 @@ export function PosScreen({
         sendPurchaseToMeta(result.id);
       }
       setLastBill({ id: result.id, invoice_no: result.invoice_no!, payable: Number(result.payable) });
-      toast.success(
-        result.coupon ? `Bill ${result.invoice_no} saved · coupon ${result.coupon}` : `Bill ${result.invoice_no} saved`
-      );
+      toast.success(`Bill ${result.invoice_no} saved`);
     } else {
       toast.success("Bill put on hold");
     }
@@ -406,40 +495,38 @@ export function PosScreen({
   }
 
   function startPayment(mode: PaymentMode) {
-    if (saving || !validateBill()) return;
+    if (saving || !validateBill(true)) return;
     setPayMode(mode);
   }
 
   function startHold() {
-    if (saving || !validateBill()) return;
+    if (editSale) return toast.error("A paid bill can't go on hold. Save it with Cash/UPI/Card");
+    if (saving || !validateBill(false)) return;
     setHoldOpen(true);
   }
 
-  async function openHeldBill(bill: HeldBill) {
-    if (lines.length > 0) {
-      toast.error("Finish or hold the current bill first");
-      return;
-    }
-    const { data, error } = await supabase
-      .from("sale_items")
-      .select("item_id, name, qty, price, discount, item:items(code, category:categories(sell_by))")
-      .eq("sale_id", bill.id)
-      .order("sort_order");
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+  // Lines of a saved bill, as they go on the billing screen
+  const fetchBillLines = useCallback(
+    async (saleId: string): Promise<Line[] | null> => {
+      const { data, error } = await supabase
+        .from("sale_items")
+        .select("item_id, name, qty, price, discount, item:items(code, category:categories(sell_by))")
+        .eq("sale_id", saleId)
+        .order("sort_order");
+      if (error) {
+        toast.error(error.message);
+        return null;
+      }
 
-    type Row = {
-      item_id: string;
-      name: string;
-      qty: number;
-      price: number;
-      discount: number;
-      item: { code: string; category: { sell_by: SellBy } | null } | null;
-    };
-    setLines(
-      (data as unknown as Row[]).map((r) => ({
+      type Row = {
+        item_id: string;
+        name: string;
+        qty: number;
+        price: number;
+        discount: number;
+        item: { code: string; category: { sell_by: SellBy } | null } | null;
+      };
+      return (data as unknown as Row[]).map((r) => ({
         item_id: r.item_id,
         name: r.name,
         code: r.item?.code ?? "",
@@ -448,8 +535,24 @@ export function PosScreen({
         price: String(Number(r.price)),
         discount: Number(r.discount),
         stock: null,
-      }))
-    );
+      }));
+    },
+    [supabase]
+  );
+
+  useEffect(() => {
+    if (!editSale) return;
+    fetchBillLines(editSale.id).then((billLines) => billLines && setLines(billLines));
+  }, [editSale, fetchBillLines]);
+
+  async function openHeldBill(bill: HeldBill) {
+    if (lines.length > 0) {
+      toast.error("Finish or hold the current bill first");
+      return;
+    }
+    const billLines = await fetchBillLines(bill.id);
+    if (!billLines) return;
+    setLines(billLines);
     setHeldSaleId(bill.id);
     setHoldRef(bill.hold_ref ?? "");
     setPhone(bill.phone ?? "");
@@ -520,7 +623,7 @@ export function PosScreen({
               <select
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
-                disabled={!isAdmin || lines.length > 0}
+                disabled={!isAdmin || lines.length > 0 || !!editSale}
                 className={`${inputClass} disabled:bg-gray-50 disabled:text-neutral-700`}
                 title={lines.length > 0 ? "Finish the current bill to change exhibition" : undefined}
               >
@@ -544,15 +647,15 @@ export function PosScreen({
                   inputMode="numeric"
                   maxLength={10}
                   autoFocus
-                  placeholder="10-digit mobile"
+                  placeholder="10-digit mobile (required)"
                   onChange={(e) => {
                     const v = e.target.value.replace(/\D/g, "").slice(0, 10);
                     setPhone(v);
-                    if (coupon && v !== coupon.phone) {
+                    if (coupon && v !== coupon.phone && !editSale) {
                       setCoupon(null);
                       toast.info("Coupon removed: it belongs to the previous mobile number");
                     }
-                    if (v.length === 10 && isValidMobile(v)) scanRef.current?.focus();
+                    if (v === NO_PHONE || isValidMobile(v)) scanRef.current?.focus();
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -574,7 +677,10 @@ export function PosScreen({
                 )}
               </div>
               {phone.length === 10 && !phoneValid && (
-                <p className="text-xs text-red-500 mt-1">This looks like a fake number</p>
+                <p className="text-xs text-red-500 mt-1">This looks like a fake number. Use 0000000000 if they won&apos;t give one</p>
+              )}
+              {phone === NO_PHONE && (
+                <p className="text-xs text-neutral-500 mt-1">No number given: the bill won&apos;t go on WhatsApp</p>
               )}
               {visiblePhones.length > 0 && (
                 <div className="absolute z-20 mt-1 w-full glass-strong rounded-lg shadow-lg overflow-hidden">
@@ -585,7 +691,7 @@ export function PosScreen({
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setPhone(p);
-                        if (coupon && p !== coupon.phone) setCoupon(null);
+                        if (coupon && p !== coupon.phone && !editSale) setCoupon(null);
                         setPhoneSuggestions([]);
                         scanRef.current?.focus();
                       }}
@@ -612,7 +718,7 @@ export function PosScreen({
                   </span>
                 )}
               </button>
-              {(lines.length > 0 || phone) && (
+              {!editSale && (lines.length > 0 || phone) && (
                 <button
                   type="button"
                   onClick={resetBill}
@@ -665,6 +771,17 @@ export function PosScreen({
             )}
           </div>
 
+          {editSale && (
+            <div className="flex items-center gap-3 text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5">
+              <span className="flex-1">
+                Editing paid bill <b>{editSale.invoice_no}</b>. Change books, qty, price or mobile, then press Cash/UPI to
+                save. Bill number and time stay the same.
+              </span>
+              <button type="button" onClick={() => router.push("/sales")} className="font-semibold hover:underline">
+                Cancel edit
+              </button>
+            </div>
+          )}
           {heldSaleId && (
             <p className="text-xs text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5">
               Editing held bill{holdRef ? ` "${holdRef}"` : ""}. Finish it with Cash/UPI or hold it again.
@@ -725,7 +842,7 @@ export function PosScreen({
                     >
                       <td className="pl-4 pr-2 py-2 text-sm text-neutral-400">{index + 1}</td>
                       <td className="px-2 py-2">
-                        <div className="text-sm font-medium text-neutral-900 leading-snug">{line.name}</div>
+                        <div className="text-sm font-medium text-neutral-900 leading-snug">{billName(line.name)}</div>
                         <div className="text-xs text-neutral-400 flex items-center gap-2">
                           {line.code}
                           {line.stock !== null && line.stock <= 0 && (
@@ -783,6 +900,10 @@ export function PosScreen({
                       </td>
                       <td className="px-2 py-2">
                         <input
+                          ref={(el) => {
+                            if (el) priceRefs.current.set(line.item_id, el);
+                            else priceRefs.current.delete(line.item_id);
+                          }}
                           value={line.price}
                           inputMode="decimal"
                           onChange={(e) =>
@@ -833,16 +954,18 @@ export function PosScreen({
               <span className="text-green-700">
                 {coupon.pct}% off · -{totals.coupon.toFixed(2)}
               </span>
-              <button
-                type="button"
-                onClick={() => setCoupon(null)}
-                title="Remove coupon"
-                className="ml-auto p-1 rounded-md text-green-700 hover:bg-green-100"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              {!editSale && (
+                <button
+                  type="button"
+                  onClick={() => setCoupon(null)}
+                  title="Remove coupon"
+                  className="ml-auto p-1 rounded-md text-green-700 hover:bg-green-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
-          ) : (
+          ) : editSale ? null : (
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
@@ -902,56 +1025,69 @@ export function PosScreen({
 
       {/* ================= CATALOG ================= */}
       <section className="lg:col-span-4 glass-card rounded-2xl flex flex-col min-h-[50vh] lg:min-h-0">
-        <div className="p-4 border-b border-gray-100 space-y-3">
+        <div className="p-4 border-b border-gray-100 grid grid-cols-2 gap-2">
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
+            <option value="">All categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.sell_by === "KG" ? `${c.name} (By kg)` : c.name}
+              </option>
+            ))}
+          </select>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
             <input
               value={catalogQuery}
               onChange={(e) => setCatalogQuery(e.target.value)}
-              placeholder="Search books"
+              placeholder="Filter items"
               className={`${inputClass} pl-9`}
             />
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto pb-1 -mb-1">
-            <CategoryChip active={categoryId === ""} onClick={() => setCategoryId("")} label="All" />
-            {categories.map((c) => (
-              <CategoryChip
-                key={c.id}
-                active={categoryId === c.id}
-                onClick={() => setCategoryId(c.id)}
-                label={c.sell_by === "KG" ? `${c.name} · kg` : c.name}
-              />
-            ))}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3">
           {!locationId ? (
-            <p className="text-sm text-neutral-400 text-center py-10">Select the exhibition to see books</p>
+            <p className="text-sm text-neutral-400 text-center py-10">Select the exhibition first</p>
           ) : catalogLoading && catalog.length === 0 ? (
             <div className="flex justify-center py-10">
               <Loader2 className="w-5 h-5 animate-spin text-neutral-400" />
             </div>
-          ) : catalog.length === 0 ? (
-            <p className="text-sm text-neutral-400 text-center py-10">No books found</p>
+          ) : catalog.length === 0 && !(openCategory?.sell_by === "PIECE") ? (
+            <p className="text-sm text-neutral-400 text-center py-10">
+              No items here. Scan publisher books with the barcode reader.
+            </p>
           ) : (
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
+              {openCategory?.sell_by === "PIECE" && !catalogQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={addOtherBook}
+                  disabled={addingOther}
+                  className="text-left rounded-xl bg-orange-50/60 border border-dashed border-orange-300 p-3 min-h-20 flex flex-col justify-between hover:bg-orange-50 active:scale-[0.98] transition-all disabled:opacity-60"
+                >
+                  <span className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2">
+                    Other {openCategory.name} book
+                  </span>
+                  <span className="flex items-center gap-1 mt-2 text-sm font-bold text-orange-600">
+                    {addingOther && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    Type price
+                  </span>
+                </button>
+              )}
               {catalog.map((item) => (
                 <button
                   key={item.item_id}
                   type="button"
                   onClick={() => addItem(item)}
-                  className="text-left rounded-xl bg-white/80 border border-gray-100 p-3 hover:border-orange-300 hover:shadow-sm active:scale-[0.98] transition-all"
+                  className="text-left rounded-xl bg-white/80 border border-gray-100 p-3 min-h-20 flex flex-col justify-between hover:border-orange-300 hover:shadow-sm active:scale-[0.98] transition-all"
                 >
-                  <div className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2 min-h-[2.4em]">
-                    {item.name}
-                  </div>
-                  <div className="flex items-end justify-between mt-2">
-                    <span className="text-sm font-bold text-orange-600">{formatRupees(Number(item.price))}</span>
-                    <span className={`text-[11px] ${Number(item.stock) > 0 ? "text-neutral-400" : "text-amber-600"}`}>
-                      {Number(item.stock) > 0 ? `${formatQty(Number(item.stock))} left` : "no stock"}
+                  <span className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2">{item.name}</span>
+                  <span className="flex items-end justify-between gap-1 mt-2">
+                    <span className="text-sm font-bold text-orange-600">
+                      {Number(item.price) > 0 ? formatRupees(Number(item.price)) : "Type price"}
                     </span>
-                  </div>
+                    {item.sell_by === "KG" && <span className="text-[11px] text-neutral-400">per kg</span>}
+                  </span>
                 </button>
               ))}
             </div>
@@ -993,6 +1129,22 @@ export function PosScreen({
             onPick={(item) => {
               addItem(item);
               setPicker(null);
+            }}
+          />
+        )}
+      </Modal>
+
+      <Modal open={!!unknownCode} onClose={() => setUnknownCode(null)} title="Not in the book list">
+        {unknownCode && (
+          <UnknownCodeDialog
+            code={unknownCode}
+            categories={categories.filter((c) => c.sell_by === "PIECE")}
+            onPick={async (categoryId) => {
+              const result = await billUnknownCode(unknownCode, categoryId, locationId);
+              if ("error" in result) return toast.error(result.error ?? "Could not add the book");
+              setUnknownCode(null);
+              if (result.isNewBook) newBookIds.current.add(result.item.item_id);
+              addItem(result.item);
             }}
           />
         )}
@@ -1047,20 +1199,6 @@ function PayButton({
       <Icon className={`w-5 h-5 ${disabled && variant === "cash" ? "animate-spin" : ""}`} />
       {label}
       <kbd className="hidden md:inline text-[10px] font-medium opacity-70 bg-black/10 rounded px-1.5 py-0.5">{shortcut}</kbd>
-    </button>
-  );
-}
-
-function CategoryChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-        active ? "bg-orange-500 text-white" : "bg-white/80 border border-gray-200 text-neutral-600 hover:bg-white"
-      }`}
-    >
-      {label}
     </button>
   );
 }

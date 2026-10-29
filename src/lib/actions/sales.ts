@@ -72,7 +72,19 @@ export async function getSales(filters: {
   };
 }
 
-export type CategorySales = { category: string; bills: number; qty: number; mrp: number; discount: number; amount: number };
+// Cash taken in billing over the days, for the cash left after expenses
+export async function getCashSales(filters: { from: string; to: string; location_id?: string }) {
+  const supabase = await createClient();
+  const { start, end } = istDayRange(filters.from, filters.to);
+  const args = filters.location_id
+    ? { p_from: start, p_to: end, p_location: filters.location_id }
+    : { p_from: start, p_to: end };
+  const { data, error } = await supabase.rpc("sales_summary", args, { get: true }).single();
+  if (error) console.error("sales_summary error:", error.message);
+  return Number((data as { cash: number } | null)?.cash ?? 0);
+}
+
+export type CategorySales ={ category: string; bills: number; qty: number; mrp: number; discount: number; amount: number };
 
 export async function getCategorySales(filters: { from: string; to: string; location_id?: string }) {
   const supabase = await createClient();

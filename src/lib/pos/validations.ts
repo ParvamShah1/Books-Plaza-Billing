@@ -40,6 +40,35 @@ export const itemSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
+export const EXPENSE_CATEGORIES = [
+  { value: "TEA_FOOD", label: "Tea & food" },
+  { value: "TRANSPORT", label: "Transport / tempo" },
+  { value: "LABOUR", label: "Labour / hamali" },
+  { value: "SALARY", label: "Staff salary" },
+  { value: "RENT", label: "Rent" },
+  { value: "ELECTRICITY", label: "Electricity" },
+  { value: "PRINTING", label: "Printing / banners" },
+  { value: "STATIONERY", label: "Stationery / bags" },
+  { value: "REPAIRS", label: "Repairs" },
+  { value: "INFLUENCER", label: "Influencer / blogger" },
+  { value: "ADS", label: "Ad spend / boosting" },
+  { value: "OTHER", label: "Other" },
+] as const;
+
+export const EXPENSE_PAID_BY = ["CASH", "UPI", "CARD", "BANK"] as const;
+
+export const expenseSchema = z
+  .object({
+    location_id: z.string().uuid("Choose a location"),
+    spent_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date"),
+    category: z.enum(EXPENSE_CATEGORIES.map((c) => c.value) as [string, ...string[]], { message: "Choose what it was for" }),
+    amount: z.coerce.number().positive("Enter the amount"),
+    paid_by: z.enum(EXPENSE_PAID_BY),
+    note: z.string().trim().default(""),
+  })
+  .refine((e) => e.category !== "OTHER" || e.note, { message: "Write what the expense was for", path: ["note"] });
+
 export type LocationInput = z.input<typeof locationSchema>;
 export type CategoryInput = z.input<typeof categorySchema>;
 export type ItemInput = z.input<typeof itemSchema>;
+export type ExpenseInput = z.input<typeof expenseSchema>;

@@ -88,6 +88,7 @@ export type Sale = {
   cancel_reason: string | null;
   coupon_code: string | null;
   coupon_discount: number;
+  edited_at?: string | null;
   location?: Pick<Location, "id" | "name" | "code" | "address"> | null;
   next_coupon?: { code: string; discount_pct: number; status: string } | null;
   items?: SaleItem[];
@@ -113,6 +114,20 @@ export type StaffMember = {
   role: Role;
   location_id: string | null;
   created_at: string;
+};
+
+export type Expense = {
+  id: string;
+  location_id: string;
+  spent_on: string;
+  category: string;
+  amount: number;
+  paid_by: "CASH" | "UPI" | "CARD" | "BANK";
+  note: string;
+  created_by: string | null;
+  added_by: string;
+  created_at: string;
+  location?: Pick<Location, "id" | "name"> | null;
 };
 
 export type CurrentStaff = {

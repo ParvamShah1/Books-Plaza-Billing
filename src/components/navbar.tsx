@@ -11,6 +11,7 @@ const navItems: { href: string; label: string; roles: Role[] }[] = [
   { href: "/pos", label: "Billing", roles: ["ADMIN", "STAFF"] },
   { href: "/sales", label: "Sales", roles: ["ADMIN", "STAFF"] },
   { href: "/stock", label: "Stock", roles: ["ADMIN", "STAFF"] },
+  { href: "/expenses", label: "Expenses", roles: ["ADMIN", "STAFF"] },
   { href: "/items", label: "Books", roles: ["ADMIN"] },
   { href: "/invoices", label: "Invoices", roles: ["ADMIN", "PENDING"] },
   { href: "/customers", label: "Customers", roles: ["ADMIN", "PENDING"] },

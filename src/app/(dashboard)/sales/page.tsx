@@ -12,7 +12,7 @@ import { SaleRowActions } from "@/components/pos/sale-row-actions";
 import { CategorySalesTable } from "@/components/pos/category-sales-table";
 import { InvoicePagination } from "@/components/invoice-pagination";
 import { primaryButtonClass } from "@/components/pos/form-styles";
-import { formatQty, formatRupees } from "@/lib/pos/billing";
+import { NO_PHONE, formatQty, formatRupees } from "@/lib/pos/billing";
 import { IndianRupee, Receipt, Banknote, Smartphone, ScanBarcode } from "lucide-react";
 
 export const metadata = { title: "Sales - Books Plaza" };
@@ -146,7 +146,7 @@ export default async function SalesPage({
                   <th className={`${th} text-right`}>Qty</th>
                   <th className={`${th} text-right`}>Amount</th>
                   <th className={`${th} text-left`}>Paid by</th>
-                  <th className="w-24" />
+                  <th className="w-32" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -155,12 +155,13 @@ export default async function SalesPage({
                     <td className="px-4 py-3 text-sm font-medium text-neutral-900">
                       {sale.invoice_no ?? sale.hold_ref ?? "Held"}
                       {sale.cancel_reason && <div className="text-xs text-red-500 font-normal">{sale.cancel_reason}</div>}
+                      {sale.edited_at && <div className="text-xs text-blue-600 font-normal">Edited</div>}
                     </td>
                     <td className="px-4 py-3 text-sm text-neutral-500">
                       {format(new Date(sale.paid_at ?? sale.created_at), from === to ? "hh:mm a" : "dd MMM, hh:mm a")}
                     </td>
                     <td className="px-4 py-3 text-sm text-neutral-600">{sale.location?.name}</td>
-                    <td className="px-4 py-3 text-sm text-neutral-600 tracking-wide">{sale.phone ?? "—"}</td>
+                    <td className="px-4 py-3 text-sm text-neutral-600 tracking-wide">{sale.phone === NO_PHONE ? "Not given" : sale.phone ?? "—"}</td>
                     <td className="px-4 py-3 text-sm text-neutral-600 text-right">{formatQty(Number(sale.total_qty))}</td>
                     <td className="px-4 py-3 text-sm font-semibold text-neutral-900 text-right">{formatRupees(Number(sale.payable))}</td>
                     <td className="px-4 py-3">
