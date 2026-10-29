@@ -91,7 +91,7 @@ export function PayDialog({
 
       <button ref={confirmRef} type="submit" disabled={saving} className={primaryButton}>
         {saving && <Loader2 className="w-5 h-5 animate-spin" />}
-        {mode === "UPI" ? "UPI received · save & print" : "Save & print"}
+        {mode === "UPI" ? "UPI received · save & print" : mode === "CARD" ? "Card paid · save & print" : "Save & print"}
         <kbd className="text-[10px] font-medium opacity-80 bg-black/10 rounded px-1.5 py-0.5">Enter</kbd>
       </button>
     </form>

@@ -13,7 +13,7 @@ import { CategorySalesTable } from "@/components/pos/category-sales-table";
 import { InvoicePagination } from "@/components/invoice-pagination";
 import { primaryButtonClass } from "@/components/pos/form-styles";
 import { NO_PHONE, formatQty, formatRupees } from "@/lib/pos/billing";
-import { IndianRupee, Receipt, Banknote, Smartphone, ScanBarcode } from "lucide-react";
+import { IndianRupee, Receipt, Banknote, Smartphone, ScanBarcode, CreditCard } from "lucide-react";
 
 export const metadata = { title: "Sales - Books Plaza" };
 
@@ -76,11 +76,12 @@ export default async function SalesPage({
         </Link>
       </PageHeader>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
         <StatCard title="Total sales" value={formatRupees(Number(summary.total))} icon={IndianRupee} subtitle={`${formatQty(Number(summary.qty))} books`} />
         <StatCard title="Bills" value={String(summary.bills)} icon={Receipt} />
         <StatCard title="Cash" value={formatRupees(Number(summary.cash))} icon={Banknote} />
         <StatCard title="UPI" value={formatRupees(Number(summary.upi))} icon={Smartphone} />
+        <StatCard title="Card" value={formatRupees(Number(summary.card))} icon={CreditCard} />
       </div>
 
       <div className="flex gap-1 p-1 glass-card rounded-xl w-fit mb-4">

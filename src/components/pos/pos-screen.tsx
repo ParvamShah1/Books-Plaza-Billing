@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { checkCoupon, searchCustomerPhones, sendBillWhatsApp } from "@/lib/actions/sales";
 import { sendPurchaseToMeta } from "@/lib/actions/meta";
-import { addCategoryOtherBook, billUnknownCode, setNewBookPrices } from "@/lib/actions/catalog";
+import { addCategoryOtherBook, billUnknownCode, getCategoryOtherBooks, setNewBookPrices } from "@/lib/actions/catalog";
 import { NO_PHONE, OTHER_BOOKS_SUFFIX, billName, billTotals, formatQty, formatRupees, isValidMobile, lineAmounts } from "@/lib/pos/billing";
 import type { Category, CurrentStaff, Location, PaymentMode, PosItem, SellBy } from "@/lib/pos/types";
 import { beep, toast } from "@/components/ui/toast";
@@ -33,6 +33,7 @@ import {
   AlertTriangle,
   RotateCcw,
   Ticket,
+  CreditCard,
 } from "lucide-react";
 
 type Line = {
@@ -165,15 +166,36 @@ export function PosScreen({
   }, [fetchHeldBills]);
 
   // ---------- Catalog ----------
-  const openCategory = categories.find((c) => c.id === categoryId);
-  const [addingOther, setAddingOther] = useState(false);
+  const [addingOther, setAddingOther] = useState<string | null>(null);
+  // "Other book" tiles: one per category sold by piece, for books with no data. On the start
+  // screen every category gets one; inside a category only that one.
+  const otherBookCategories = catalogQuery.trim()
+    ? []
+    : categories.filter((c) => c.sell_by === "PIECE" && (!categoryId || c.id === categoryId));
 
-  async function addOtherBook() {
-    if (!openCategory || !locationId) return;
-    setAddingOther(true);
-    const result = await addCategoryOtherBook(openCategory.id, locationId);
-    setAddingOther(false);
+  // Loaded once per exhibition so a tap adds the line straight away
+  const [otherBooks, setOtherBooks] = useState<Map<string, PosItem>>(new Map());
+  useEffect(() => {
+    if (!locationId) return;
+    let cancelled = false;
+    getCategoryOtherBooks(locationId).then((items) => {
+      if (!cancelled) setOtherBooks(new Map(items.map((i) => [i.category_id ?? "", i])));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [locationId]);
+
+  async function addOtherBook(categoryIdToAdd: string) {
+    if (!locationId) return;
+    const loaded = otherBooks.get(categoryIdToAdd);
+    if (loaded) return addItem(loaded);
+    // Category added after the screen opened: fetch it this once
+    setAddingOther(categoryIdToAdd);
+    const result = await addCategoryOtherBook(categoryIdToAdd, locationId);
+    setAddingOther(null);
     if ("error" in result) return toast.error(result.error ?? "Could not add the book");
+    setOtherBooks((m) => new Map(m).set(categoryIdToAdd, result.item));
     addItem(result.item);
   }
 
@@ -593,6 +615,9 @@ export function PosScreen({
       } else if (e.key === "F9") {
         e.preventDefault();
         startPayment("CASH");
+      } else if (e.key === "F10") {
+        e.preventDefault();
+        startPayment("CARD");
       } else if (
         e.key.length === 1 &&
         !e.ctrlKey &&
@@ -774,8 +799,8 @@ export function PosScreen({
           {editSale && (
             <div className="flex items-center gap-3 text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5">
               <span className="flex-1">
-                Editing paid bill <b>{editSale.invoice_no}</b>. Change books, qty, price or mobile, then press Cash/UPI to
-                save. Bill number and time stay the same.
+                Editing paid bill <b>{editSale.invoice_no}</b>. Change books, qty, price or mobile, then press Cash/UPI/Card
+                to save. Bill number and time stay the same.
               </span>
               <button type="button" onClick={() => router.push("/sales")} className="font-semibold hover:underline">
                 Cancel edit
@@ -784,7 +809,7 @@ export function PosScreen({
           )}
           {heldSaleId && (
             <p className="text-xs text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5">
-              Editing held bill{holdRef ? ` "${holdRef}"` : ""}. Finish it with Cash/UPI or hold it again.
+              Editing held bill{holdRef ? ` "${holdRef}"` : ""}. Finish it with Cash/UPI/Card or hold it again.
             </p>
           )}
         </div>
@@ -1008,7 +1033,7 @@ export function PosScreen({
               <div className="text-2xl font-bold leading-tight">{formatRupees(totals.payable)}</div>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <PayButton onClick={startHold} disabled={saving} variant="hold" icon={PauseCircle} label="Hold" shortcut="F4" />
             <PayButton onClick={() => startPayment("UPI")} disabled={saving} variant="upi" icon={Smartphone} label="UPI" shortcut="F8" />
             <PayButton
@@ -1019,6 +1044,7 @@ export function PosScreen({
               label="Cash"
               shortcut="F9"
             />
+            <PayButton onClick={() => startPayment("CARD")} disabled={saving} variant="card" icon={CreditCard} label="Card" shortcut="F10" />
           </div>
         </div>
       </section>
@@ -1052,28 +1078,27 @@ export function PosScreen({
             <div className="flex justify-center py-10">
               <Loader2 className="w-5 h-5 animate-spin text-neutral-400" />
             </div>
-          ) : catalog.length === 0 && !(openCategory?.sell_by === "PIECE") ? (
+          ) : catalog.length === 0 && otherBookCategories.length === 0 ? (
             <p className="text-sm text-neutral-400 text-center py-10">
               No items here. Scan publisher books with the barcode reader.
             </p>
           ) : (
             <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
-              {openCategory?.sell_by === "PIECE" && !catalogQuery.trim() && (
+              {otherBookCategories.map((c) => (
                 <button
+                  key={c.id}
                   type="button"
-                  onClick={addOtherBook}
-                  disabled={addingOther}
+                  onClick={() => addOtherBook(c.id)}
+                  disabled={!!addingOther}
                   className="text-left rounded-xl bg-orange-50/60 border border-dashed border-orange-300 p-3 min-h-20 flex flex-col justify-between hover:bg-orange-50 active:scale-[0.98] transition-all disabled:opacity-60"
                 >
-                  <span className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2">
-                    Other {openCategory.name} book
-                  </span>
+                  <span className="text-[13px] font-medium text-neutral-900 leading-snug line-clamp-2">{c.name}</span>
                   <span className="flex items-center gap-1 mt-2 text-sm font-bold text-orange-600">
-                    {addingOther && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {addingOther === c.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     Type price
                   </span>
                 </button>
-              )}
+              ))}
               {catalog.map((item) => (
                 <button
                   key={item.item_id}
@@ -1096,7 +1121,7 @@ export function PosScreen({
       </section>
 
       {/* ================= DIALOGS ================= */}
-      <Modal open={!!payMode} onClose={() => setPayMode(null)} title={payMode === "UPI" ? "UPI payment" : "Cash payment"}>
+      <Modal open={!!payMode} onClose={() => setPayMode(null)} title={payMode === "UPI" ? "UPI payment" : payMode === "CARD" ? "Card payment" : "Cash payment"}>
         {payMode && (
           <PayDialog
             mode={payMode}
@@ -1172,6 +1197,7 @@ const payVariants = {
   hold: "bg-white border border-gray-200 text-neutral-700 hover:bg-gray-50",
   upi: "bg-neutral-900 text-white hover:bg-neutral-800",
   cash: "bg-orange-500 text-white hover:bg-orange-600",
+  card: "bg-blue-600 text-white hover:bg-blue-700",
 };
 
 function PayButton({

@@ -4,13 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { addExpense, deleteExpense } from "@/lib/actions/expenses";
-import { EXPENSE_CATEGORIES, EXPENSE_PAID_BY } from "@/lib/pos/validations";
+import { EXPENSE_CATEGORIES, EXPENSE_PAID_BY, expenseLabel } from "@/lib/pos/validations";
 import { toast } from "@/components/ui/toast";
 import { errorBoxClass, inputClass, labelClass, primaryButtonClass } from "@/components/pos/form-styles";
 import type { Expense, Location } from "@/lib/pos/types";
-
-export const expenseLabel = (category: string) =>
-  EXPENSE_CATEGORIES.find((c) => c.value === category)?.label ?? category;
 
 // Quick entry at the exhibition: what for, how much, cash or UPI
 export function ExpenseForm({

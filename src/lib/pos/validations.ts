@@ -57,6 +57,9 @@ export const EXPENSE_CATEGORIES = [
 
 export const EXPENSE_PAID_BY = ["CASH", "UPI", "CARD", "BANK"] as const;
 
+export const expenseLabel = (category: string) =>
+  EXPENSE_CATEGORIES.find((c) => c.value === category)?.label ?? category;
+
 export const expenseSchema = z
   .object({
     location_id: z.string().uuid("Choose a location"),
