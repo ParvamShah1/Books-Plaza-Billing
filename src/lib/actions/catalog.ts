@@ -1,23 +1,52 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { revalidatePath, unstable_cache, updateTag } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, createTokenClient, getAccessToken } from "@/lib/supabase/server";
 import { categorySchema, itemSchema, locationSchema } from "@/lib/pos/validations";
 import { itemIdsForBarcode } from "@/lib/pos/search";
 import { toIsbn13 } from "@/lib/pos/isbn";
 import { OTHER_BOOKS_SUFFIX } from "@/lib/pos/billing";
 import type { Category, CategoryDiscount, Item, ItemKind, Location, PosItem } from "@/lib/pos/types";
 
+// Exhibitions and categories rarely change, so they're cached for everyone (all staff can see
+// all of them) for an hour, or until they're edited in Settings
+async function cachedForStaff<T>(
+  tag: string,
+  query: (supabase: SupabaseClient) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const supabase = await createClient();
+  const run = async (client: SupabaseClient) => {
+    const { data, error } = await query(client);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  };
+  const token = await getAccessToken(supabase);
+  if (!token) return run(supabase);
+
+  try {
+    return await unstable_cache(
+      async () => {
+        const rows = await run(createTokenClient(token));
+        // Never cache an empty list (e.g. read by someone who can't see the rows)
+        if (rows.length === 0) throw new Error("empty");
+        return rows;
+      },
+      [tag],
+      { tags: [tag], revalidate: 3600 }
+    )();
+  } catch {
+    return run(supabase);
+  }
+}
+
 // ---------- Locations ----------
 
 export async function getLocations(options?: { activeOnly?: boolean }): Promise<Location[]> {
-  const supabase = await createClient();
-  let query = supabase.from("locations").select("*").order("is_active", { ascending: false }).order("name");
-  if (options?.activeOnly) query = query.eq("is_active", true);
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return data as Location[];
+  const locations = await cachedForStaff<Location>("locations", (supabase) =>
+    supabase.from("locations").select("*").order("is_active", { ascending: false }).order("name")
+  );
+  return options?.activeOnly ? locations.filter((l) => l.is_active) : locations;
 }
 
 export async function saveLocation(id: string | null, input: unknown) {
@@ -34,6 +63,7 @@ export async function saveLocation(id: string | null, input: unknown) {
     return { error: error.message };
   }
 
+  updateTag("locations");
   revalidatePath("/settings");
   return { success: true };
 }
@@ -41,10 +71,7 @@ export async function saveLocation(id: string | null, input: unknown) {
 // ---------- Categories + discounts ----------
 
 export async function getCategories(): Promise<Category[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("categories").select("*").order("name");
-  if (error) throw new Error(error.message);
-  return data as Category[];
+  return cachedForStaff<Category>("categories", (supabase) => supabase.from("categories").select("*").order("name"));
 }
 
 export async function saveCategory(id: string | null, input: unknown) {
@@ -61,6 +88,7 @@ export async function saveCategory(id: string | null, input: unknown) {
     return { error: error.message };
   }
 
+  updateTag("categories");
   revalidatePath("/settings");
   revalidatePath("/items");
   return { success: true };
@@ -74,6 +102,7 @@ export async function deleteCategory(id: string) {
     return { error: error.message };
   }
 
+  updateTag("categories");
   revalidatePath("/settings");
   return { success: true };
 }

@@ -1,7 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { staffTag } from "@/lib/pos/session";
 import type { Role, StaffMember } from "@/lib/pos/types";
 
 export async function listStaff(): Promise<StaffMember[]> {
@@ -20,6 +21,7 @@ export async function setStaff(userId: string, role: Role, locationId: string | 
   });
   if (error) return { error: error.message };
 
+  updateTag(staffTag(userId));
   revalidatePath("/settings");
   return { success: true };
 }
