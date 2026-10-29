@@ -1,17 +1,17 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUserId } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 
 export async function getProfile(): Promise<Profile | null> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const userId = await getSessionUserId(supabase);
+  if (!userId) return null;
 
   const { data, error } = await supabase
     .from("profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single();
 
   if (error) return null;

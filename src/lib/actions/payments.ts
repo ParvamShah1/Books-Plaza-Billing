@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUserId } from "@/lib/supabase/server";
 import { paymentSchema } from "@/lib/validations";
 import type { Payment } from "@/lib/types";
 
@@ -14,9 +14,9 @@ export type DateFilter = {
 
 async function getUserId() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return { supabase, userId: user.id };
+  const userId = await getSessionUserId(supabase);
+  if (!userId) throw new Error("Unauthorized");
+  return { supabase, userId };
 }
 
 function getDateRange(filters?: DateFilter): { from?: string; to?: string } {

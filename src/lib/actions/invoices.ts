@@ -1,16 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUserId } from "@/lib/supabase/server";
 import { invoiceSchema } from "@/lib/validations";
 import { calculateInvoiceTotals } from "@/lib/calculations";
 import type { Invoice } from "@/lib/types";
 
 async function getUserId() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return { supabase, userId: user.id };
+  const userId = await getSessionUserId(supabase);
+  if (!userId) throw new Error("Unauthorized");
+  return { supabase, userId };
 }
 
 export async function getInvoices(filters?: {

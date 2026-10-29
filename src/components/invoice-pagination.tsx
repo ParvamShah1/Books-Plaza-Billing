@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface InvoicePaginationProps {
@@ -10,6 +10,7 @@ interface InvoicePaginationProps {
 
 export function InvoicePagination({ total, pageSize }: InvoicePaginationProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const page = Number(searchParams.get("page") || "1");
   const totalPages = Math.ceil(total / pageSize);
@@ -23,7 +24,7 @@ export function InvoicePagination({ total, pageSize }: InvoicePaginationProps) {
     } else {
       params.set("page", String(p));
     }
-    router.push(`/invoices?${params.toString()}`);
+    router.push(`${pathname}?${params.toString()}`);
   }
 
   return (

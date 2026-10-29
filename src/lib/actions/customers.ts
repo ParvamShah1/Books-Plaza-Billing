@@ -1,15 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUserId } from "@/lib/supabase/server";
 import { customerSchema } from "@/lib/validations";
 import type { Customer, CustomerWithBalance } from "@/lib/types";
 
 async function getUserId() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return { supabase, userId: user.id };
+  const userId = await getSessionUserId(supabase);
+  if (!userId) throw new Error("Unauthorized");
+  return { supabase, userId };
 }
 
 export async function getCustomers(search?: string): Promise<Customer[]> {
