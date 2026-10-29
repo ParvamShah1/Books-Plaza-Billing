@@ -149,7 +149,8 @@ export async function searchCustomerPhones(prefix: string): Promise<string[]> {
 // Sends the bill + next-visit coupon on WhatsApp. Called after billing, never blocks the cashier.
 // Goes through Chatbox's API (paid from the Chatbox wallet, shows in its API Message Report),
 // with a template approved in Chatbox: body {{1}} exhibition, {{2}} bill amount, {{3}} coupon code;
-// first button "View your bill" opens <app>/b/{{1}} with the bill's public token, second is the website.
+// the "View bill" button opens <app>/b/{{1}} with the bill's public token. In bill_new it is the
+// second button (index 1, after the website); WHATSAPP_BUTTON_INDEX overrides that.
 export async function sendBillWhatsApp(saleId: string) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const apiKey = process.env.CHATBOX_API_KEY;
@@ -194,7 +195,12 @@ export async function sendBillWhatsApp(saleId: string) {
                 text(couponCode || "-"),
               ],
             },
-            { type: "button", sub_type: "url", index: "0", parameters: [text(sale.public_token)] },
+            {
+              type: "button",
+              sub_type: "url",
+              index: process.env.WHATSAPP_BUTTON_INDEX || "1",
+              parameters: [text(sale.public_token)],
+            },
           ],
         },
       }),
