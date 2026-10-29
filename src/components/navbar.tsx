@@ -8,7 +8,6 @@ import { LogOut } from "lucide-react";
 import type { Role } from "@/lib/pos/types";
 
 const navItems: { href: string; label: string; roles: Role[] }[] = [
-  { href: "/m", label: "Overview", roles: ["ADMIN"] },
   { href: "/pos", label: "Billing", roles: ["ADMIN", "STAFF"] },
   { href: "/sales", label: "Sales", roles: ["ADMIN", "STAFF"] },
   { href: "/stock", label: "Stock", roles: ["ADMIN", "STAFF"] },
