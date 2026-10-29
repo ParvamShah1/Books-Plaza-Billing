@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 
 type Line = {
+  key: string; // the item id, or a fresh one per row for "Type price" items
   item_id: string;
   name: string;
   code: string;
@@ -58,6 +59,10 @@ export type EditSale = {
   coupon_code: string | null;
   coupon_pct: number;
 };
+
+// Each tap on a "Type price" tile is a different book, so it gets its own row
+const isOtherBooks = (item: { kind?: string; name: string }) => item.kind !== "PUBLISHER" && item.name.endsWith(OTHER_BOOKS_SUFFIX);
+let rowSeq = 0;
 
 const looksLikeCode = (s: string) => /^[0-9Xx-]{6,}$/.test(s) || /^BP\d+$/i.test(s);
 const canNameSearch = (s: string) => s.length >= 3 && !looksLikeCode(s);
@@ -262,15 +267,17 @@ export function PosScreen({
 
   // ---------- Bill lines ----------
   const addItem = useCallback((item: PosItem) => {
+    const key = isOtherBooks(item) ? `${item.item_id}:${++rowSeq}` : item.item_id;
     setLines((prev) => {
-      const existing = prev.find((l) => l.item_id === item.item_id);
+      const existing = prev.find((l) => l.key === key);
       if (existing) {
         if (existing.sell_by === "KG") return prev;
-        return prev.map((l) => (l.item_id === item.item_id ? { ...l, qty: String(num(l.qty) + 1) } : l));
+        return prev.map((l) => (l.key === key ? { ...l, qty: String(num(l.qty) + 1) } : l));
       }
       return [
         ...prev,
         {
+          key,
           item_id: item.item_id,
           name: item.name,
           code: item.code,
@@ -282,13 +289,13 @@ export function PosScreen({
         },
       ];
     });
-    setFlashId(item.item_id);
-    setTimeout(() => setFlashId((id) => (id === item.item_id ? null : id)), 700);
+    setFlashId(key);
+    setTimeout(() => setFlashId((id) => (id === key ? null : id)), 700);
 
     // Weight items: jump to the qty box so the cashier types the kg; no price yet: to the price box
     setTimeout(() => {
-      const qtyInput = qtyRefs.current.get(item.item_id);
-      const priceInput = priceRefs.current.get(item.item_id);
+      const qtyInput = qtyRefs.current.get(key);
+      const priceInput = priceRefs.current.get(key);
       if (item.sell_by === "KG" && qtyInput) {
         qtyInput.focus();
         qtyInput.select();
@@ -302,17 +309,17 @@ export function PosScreen({
     }, 0);
   }, []);
 
-  function updateLine(itemId: string, patch: Partial<Line>) {
-    setLines((prev) => prev.map((l) => (l.item_id === itemId ? { ...l, ...patch } : l)));
+  function updateLine(key: string, patch: Partial<Line>) {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
   function stepQty(line: Line, delta: number) {
     const next = Math.max(1, Math.round(num(line.qty)) + delta);
-    updateLine(line.item_id, { qty: String(next) });
+    updateLine(line.key, { qty: String(next) });
   }
 
-  function removeLine(itemId: string) {
-    setLines((prev) => prev.filter((l) => l.item_id !== itemId));
+  function removeLine(key: string) {
+    setLines((prev) => prev.filter((l) => l.key !== key));
     scanRef.current?.focus();
   }
 
@@ -420,13 +427,13 @@ export function PosScreen({
     const unpriced = forPayment && lines.find((l) => num(l.price) <= 0);
     if (unpriced) {
       toast.error(`Type the price of "${unpriced.name}"`);
-      priceRefs.current.get(unpriced.item_id)?.focus();
+      priceRefs.current.get(unpriced.key)?.focus();
       return false;
     }
     const bad = lines.find((l) => num(l.qty) <= 0 || (l.sell_by === "PIECE" && !Number.isInteger(num(l.qty))));
     if (bad) {
       toast.error(`Check the quantity of "${bad.name}"`);
-      qtyRefs.current.get(bad.item_id)?.focus();
+      qtyRefs.current.get(bad.key)?.focus();
       return false;
     }
     return true;
@@ -549,6 +556,7 @@ export function PosScreen({
         item: { code: string; category: { sell_by: SellBy } | null } | null;
       };
       return (data as unknown as Row[]).map((r) => ({
+        key: isOtherBooks(r) ? `${r.item_id}:${++rowSeq}` : r.item_id,
         item_id: r.item_id,
         name: r.name,
         code: r.item?.code ?? "",
@@ -862,8 +870,8 @@ export function PosScreen({
                   });
                   return (
                     <tr
-                      key={line.item_id}
-                      className={`transition-colors ${flashId === line.item_id ? "bg-orange-50" : "hover:bg-white/60"}`}
+                      key={line.key}
+                      className={`transition-colors ${flashId === line.key ? "bg-orange-50" : "hover:bg-white/60"}`}
                     >
                       <td className="pl-4 pr-2 py-2 text-sm text-neutral-400">{index + 1}</td>
                       <td className="px-2 py-2">
@@ -890,8 +898,8 @@ export function PosScreen({
                           )}
                           <input
                             ref={(el) => {
-                              if (el) qtyRefs.current.set(line.item_id, el);
-                              else qtyRefs.current.delete(line.item_id);
+                              if (el) qtyRefs.current.set(line.key, el);
+                              else qtyRefs.current.delete(line.key);
                             }}
                             value={line.qty}
                             inputMode="decimal"
@@ -899,7 +907,7 @@ export function PosScreen({
                               const v = line.sell_by === "PIECE"
                                 ? e.target.value.replace(/\D/g, "")
                                 : e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
-                              updateLine(line.item_id, { qty: v });
+                              updateLine(line.key, { qty: v });
                             }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
@@ -926,13 +934,13 @@ export function PosScreen({
                       <td className="px-2 py-2">
                         <input
                           ref={(el) => {
-                            if (el) priceRefs.current.set(line.item_id, el);
-                            else priceRefs.current.delete(line.item_id);
+                            if (el) priceRefs.current.set(line.key, el);
+                            else priceRefs.current.delete(line.key);
                           }}
                           value={line.price}
                           inputMode="decimal"
                           onChange={(e) =>
-                            updateLine(line.item_id, {
+                            updateLine(line.key, {
                               price: e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1"),
                             })
                           }
@@ -956,7 +964,7 @@ export function PosScreen({
                         <button
                           type="button"
                           tabIndex={-1}
-                          onClick={() => removeLine(line.item_id)}
+                          onClick={() => removeLine(line.key)}
                           className="p-1.5 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                         >
                           <X className="w-4 h-4" />
